@@ -117,7 +117,7 @@ The config file is located at `/home/fpp/media/config/fpp-monitor-agent.json`. I
   "heartbeat_interval_sec": 60,
   "command_poll_interval_sec": 30,
   "reboot_enabled": false,
-  "restart_fpp_command": "systemctl restart fppd || systemctl restart fpp || service fppd restart || true"
+  "restart_fpp_command": "systemctl restart fpp"
 }
 ```
 
