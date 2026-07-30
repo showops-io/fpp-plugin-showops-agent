@@ -79,6 +79,47 @@ jobs:
           DRY_RUN: "1"
           PURGE: "1"
 
+  update-check:
+    name: Update Check Hook
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Smoke test — reports an update when the installed binary is behind
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir -p "$root/bin"
+          echo v0.0.1 > "$root/bin/VERSION"
+          out="$(SHOWOPS_PLUGIN_DIR="$root" SHOWOPS_UPDATE_CHECK_CACHE="$root/cache" ./scripts/fpp_update_check.sh)"
+          [ "$out" = "1" ] || { echo "expected 1, got '$out'"; exit 1; }
+
+      - name: Smoke test — reports no update when the installed binary is current
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir -p "$root/bin"
+          echo v99.0.0 > "$root/bin/VERSION"
+          out="$(SHOWOPS_PLUGIN_DIR="$root" SHOWOPS_UPDATE_CHECK_CACHE="$root/cache" ./scripts/fpp_update_check.sh)"
+          [ "$out" = "0" ] || { echo "expected 0, got '$out'"; exit 1; }
+
+      - name: Smoke test — reports no update when nothing is installed
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          out="$(SHOWOPS_PLUGIN_DIR="$root" SHOWOPS_UPDATE_CHECK_CACHE="$root/cache" ./scripts/fpp_update_check.sh)"
+          [ "$out" = "0" ] || { echo "expected 0, got '$out'"; exit 1; }
+
+      - name: Smoke test — reports no update when the release cannot be resolved
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir -p "$root/bin"
+          echo v0.0.1 > "$root/bin/VERSION"
+          out="$(AGENT_REPO_NAME=showops-no-such-repo SHOWOPS_UPDATE_CHECK_TIMEOUT_SEC=3 \
+            SHOWOPS_PLUGIN_DIR="$root" SHOWOPS_UPDATE_CHECK_CACHE="$root/cache" ./scripts/fpp_update_check.sh)"
+          [ "$out" = "0" ] || { echo "expected 0, got '$out'"; exit 1; }
+
   validate-json:
     name: Validate JSON
     runs-on: ubuntu-latest

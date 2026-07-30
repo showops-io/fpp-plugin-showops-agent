@@ -31,6 +31,13 @@
       ]
     },
     {
+      "file": "scripts/fpp_update_check.sh",
+      "mustContain": [
+        "/opt/fpp-monitor-agent/VERSION",
+        "fpp-agent-monitor"
+      ]
+    },
+    {
       "file": "scripts/install_common.sh",
       "mustContain": [
         "FPP_MONITOR_INSTALL_RUN_ID",
