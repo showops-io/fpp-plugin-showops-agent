@@ -228,6 +228,16 @@ To install a specific version:
 RELEASE_VERSION=v0.1.27 bash scripts/fpp_install.sh
 ```
 
+### FPP does not show an update for the plugin
+
+FPP's Plugins page flags an update when the plugin directory has commits to pull, or when `scripts/fpp_update_check.sh` reports one. Because the agent binary ships as a release asset rather than a commit in this repo, that script is what surfaces a new agent. Check what it sees:
+
+```bash
+bash /home/fpp/media/plugins/showops-agent/scripts/fpp_update_check.sh
+```
+
+`1` means an update is available, `0` means none. Run stderr through as well (drop `2>/dev/null`) for the installed and latest versions it compared. The answer is cached for 15 minutes at `/home/fpp/media/tmp/showops-agent-update-check`; delete that file to force a fresh check.
+
 ---
 
 ## Development
@@ -257,6 +267,7 @@ GitHub Actions runs on every push and PR:
 - **ShellCheck** — lints all shell scripts in `scripts/` and `system/`
 - **Plugin API contract** — asserts frozen paths and FPP UI POST actions match `docs/contract-fingerprints.json`
 - **Dry-run install** — validates the installer runs without error in dry-run mode
+- **Update check hook** — asserts `scripts/fpp_update_check.sh` reports `1` only when the installed binary is behind, and `0` when it cannot resolve a release
 - **Dry-run uninstall** — validates the uninstaller runs without error in dry-run mode
 - **JSON validation** — validates `pluginInfo.json`
 - **PHP syntax** — `php -l` on `www/showops.php` (FPP plugin UI; catches syntax errors before deploy)

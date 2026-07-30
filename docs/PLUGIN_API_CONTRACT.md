@@ -127,13 +127,29 @@ Checksum verification uses `checksums.txt` from the same release. **Do not** cha
 
 ---
 
-## 8. PHP plugin UI and config merges
+## 8. Update detection for FPP's Plugins page
+
+FPP's `PluginHasUpdates()` decides whether to show "update available" by looking for unpulled commits in the plugin directory, then falling back to `scripts/fpp_update_check.sh`. This plugin needs the fallback: the agent binary ships as a release asset in [fpp-agent-monitor](https://github.com/jlwright325/fpp-agent-monitor), so a plugin repo with no new commits says nothing about how far behind the installed binary is.
+
+`scripts/fpp_update_check.sh` must therefore keep FPP's contract:
+
+- exit `0`, and print `1` as the **final stdout line** when the installed release tag is older than the newest one
+- print `0` for every other outcome, including no binary installed and no network — FPP treats a non-zero exit or any other final line as "no update"
+- keep diagnostics on **stderr**; FPP reads only the last stdout line
+
+Latest-version resolution matches `api.php`: the `latest.json` manifest first, then the GitHub releases API. Results are cached for 15 minutes at `/home/fpp/media/tmp/showops-agent-update-check` (keyed by installed version, so an upgrade invalidates it) because FPP runs the check on every Plugins page render.
+
+Applying the update needs nothing extra here — FPP's `upgrade_plugin` runs `scripts/fpp_install.sh` after the no-op `git pull`, and that installs the newest release without overwriting an existing config.
+
+---
+
+## 9. PHP plugin UI and config merges
 
 The UI reads the same config path and expects JSON objects as produced by the installer. Pairing actions must preserve operator-tuned fields (same merge discipline as uninstall).
 
 ---
 
-## 9. CI contract verification
+## 10. CI contract verification
 
 `scripts/verify_plugin_contract.sh` reads `docs/contract-fingerprints.json` and fails if frozen paths or POST actions drift. Run locally:
 
