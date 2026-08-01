@@ -3,9 +3,9 @@
   "name": "ShowOps Agent",
   "author": "ShowOps",
   "description": "Outbound-only ShowOps monitoring agent for FPP.",
-  "homeURL": "https://github.com/jlwright325/fpp-plugin-monitor-agent",
-  "srcURL": "https://github.com/jlwright325/fpp-plugin-monitor-agent.git",
-  "bugURL": "https://github.com/jlwright325/fpp-plugin-monitor-agent/issues",
+  "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
+  "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
+  "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
   "instructions": "Configure via FPP UI: Plugins → ShowOps Configuration.",
   "versions": [
     {
