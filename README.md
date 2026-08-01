@@ -208,6 +208,24 @@ cat /home/fpp/media/logs/fpp-monitor-agent-install.log
 2. Check for config errors: `cat /home/fpp/media/config/fpp-monitor-agent.json`
 3. Try running manually: `/opt/fpp-monitor-agent/fpp-monitor-agent`
 
+## Troubleshooting
+
+### Remote "Update Agent" fails with permission denied
+
+The systemd unit runs as `User=fpp`. If `/opt/fpp-monitor-agent` or `/var/lib/fpp-monitor-agent` is root-owned, self-update cannot write. On the Pi:
+
+```bash
+sudo mkdir -p /var/lib/fpp-monitor-agent/downloads
+sudo chown -R fpp:fpp /var/lib/fpp-monitor-agent /opt/fpp-monitor-agent
+sudo systemctl restart fpp-monitor-agent.service
+```
+
+Then retry **Update Agent** in ShowOps, or reinstall via the plugin (uses sudo and fixes ownership):
+
+```bash
+bash /home/fpp/media/plugins/showops-agent/scripts/fpp_install.sh
+```
+
 ### Pairing code not appearing
 
 - Ensure the device has outbound internet access to `https://api.showops.io`

@@ -205,6 +205,15 @@ else
   rm -rf "$tmp_dir"
 fi
 
+# Remote ShowOps "Update Agent" runs as User=fpp. Keep the install tree and
+# legacy download dir writable so self-update can replace the binary.
+if ! is_dry_run && can_sudo && [[ -d "$INSTALL_DIR" ]]; then
+  DATA_DIR="/var/lib/fpp-monitor-agent/downloads"
+  run_cmd_sudo mkdir -p "$DATA_DIR"
+  run_cmd_sudo chown -R fpp:fpp /var/lib/fpp-monitor-agent || true
+  run_cmd_sudo chown -R fpp:fpp "$INSTALL_DIR" || true
+fi
+
 if [[ ! -f "$CONFIG_PATH" ]]; then
   log "Writing default config to $CONFIG_PATH"
   if is_dry_run; then
