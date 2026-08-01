@@ -25,11 +25,11 @@ BIN_PATH="$INSTALL_DIR/fpp-monitor-agent"
 # Update this whenever a new stable release ships.
 DEFAULT_RELEASE_VERSION="v0.1.27"
 RELEASE_VERSION="${RELEASE_VERSION:-}"
-AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-jlwright325}"
+AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-showops-io}"
 AGENT_REPO_NAME="${AGENT_REPO_NAME:-fpp-agent-monitor}"
 
 resolve_latest_tag() {
-  local manifest_url="https://raw.githubusercontent.com/jlwright325/fpp-agent-monitor/main/latest.json"
+  local manifest_url="https://raw.githubusercontent.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/main/latest.json"
   local api_url="https://api.github.com/repos/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/releases/latest"
   local body=""
   local tmp=""

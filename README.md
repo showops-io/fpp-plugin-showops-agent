@@ -46,7 +46,7 @@ https://api.showops.io  (ShowOps cloud API)
 cloudflared tunnel (optional — for remote sessions)
 ```
 
-The Go binary itself lives in the [fpp-agent-monitor](https://github.com/jlwright325/fpp-agent-monitor) repository. This plugin repo handles FPP integration, installation, and the web UI.
+The Go binary itself lives in the [fpp-agent-monitor](https://github.com/showops-io/fpp-agent-monitor) repository. This plugin repo handles FPP integration, installation, and the web UI.
 
 ---
 
@@ -85,7 +85,7 @@ The installer will:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RELEASE_VERSION` | _(latest)_ | Pin to a specific release tag (e.g. `v0.1.27`) |
-| `AGENT_REPO_OWNER` | `jlwright325` | GitHub owner for agent binary releases |
+| `AGENT_REPO_OWNER` | `showops-io` | GitHub owner for agent binary releases |
 | `AGENT_REPO_NAME` | `fpp-agent-monitor` | GitHub repo name for agent binary releases |
 | `RELEASE_BASE` | _(derived)_ | Override full release asset base URL |
 | `DRY_RUN` | `0` | Set to `1` to print actions without executing them |

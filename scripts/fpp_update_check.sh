@@ -19,7 +19,7 @@
 set -uo pipefail
 
 PLUGIN_DIR="${SHOWOPS_PLUGIN_DIR:-/home/fpp/media/plugins/showops-agent}"
-AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-jlwright325}"
+AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-showops-io}"
 AGENT_REPO_NAME="${AGENT_REPO_NAME:-fpp-agent-monitor}"
 # FPP runs this on every Plugins page render, so answer from cache rather than
 # reaching across the WAN each time.

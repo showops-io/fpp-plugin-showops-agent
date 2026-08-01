@@ -24,7 +24,7 @@ function showopsAgentUpdates()
 
     $response = array(
         'status' => 'ok',
-        'repo' => 'jlwright325/fpp-agent-monitor',
+        'repo' => 'showops-io/fpp-agent-monitor',
         'currentVersion' => $currentVersion,
         'latestVersion' => $latestVersion,
     );
@@ -62,7 +62,7 @@ function showopsAgentDetectCurrentVersion()
 
 function showopsAgentResolveLatestVersion()
 {
-    $apiUrl = 'https://api.github.com/repos/jlwright325/fpp-agent-monitor/releases/latest';
+    $apiUrl = 'https://api.github.com/repos/showops-io/fpp-agent-monitor/releases/latest';
     $json = showopsAgentHttpGet($apiUrl, array(
         'Accept: application/vnd.github+json',
         'User-Agent: showops-agent-fpp-plugin',
@@ -74,7 +74,7 @@ function showopsAgentResolveLatestVersion()
         }
     }
 
-    $manifestUrl = 'https://raw.githubusercontent.com/jlwright325/fpp-agent-monitor/main/latest.json';
+    $manifestUrl = 'https://raw.githubusercontent.com/showops-io/fpp-agent-monitor/main/latest.json';
     $manifestJson = showopsAgentHttpGet($manifestUrl, array(
         'User-Agent: showops-agent-fpp-plugin',
     ));
