@@ -25,23 +25,44 @@ download_file() {
   local url="$1"
   local dest="$2"
   local status=""
+  local attempt=1
+  local max_attempts=6
 
   if have_command curl; then
     log "Copy/paste to debug download: curl -fSL -o \"$dest\" \"$url\""
-    status="$(curl -sSL -L -w "%{http_code}" -o "$dest" "$url" || true)"
-    if [[ "$status" != "200" ]]; then
-      log "Download failed (HTTP $status): $url"
-      return 1
-    fi
-    return 0
+    while [[ "$attempt" -le "$max_attempts" ]]; do
+      status="$(curl -sSL -L -w "%{http_code}" -o "$dest" "$url" || true)"
+      if [[ "$status" == "200" ]]; then
+        return 0
+      fi
+      # 404/000: release assets may still be uploading after latest.json advances.
+      if [[ "$status" != "404" && "$status" != "000" ]]; then
+        log "Download failed (HTTP $status): $url"
+        return 1
+      fi
+      log "Download not ready (HTTP $status), retry ${attempt}/${max_attempts}: $url"
+      sleep $((attempt * 3))
+      attempt=$((attempt + 1))
+    done
+    log "Download failed (HTTP $status): $url"
+    return 1
   elif have_command wget; then
     log "Copy/paste to debug download: wget -O \"$dest\" \"$url\""
-    status="$(wget --server-response -O "$dest" "$url" 2>&1 | awk '/^  HTTP/{code=$2} END{print code}' || true)"
-    if [[ "$status" != "200" ]]; then
-      log "Download failed (HTTP $status): $url"
-      return 1
-    fi
-    return 0
+    while [[ "$attempt" -le "$max_attempts" ]]; do
+      status="$(wget --server-response -O "$dest" "$url" 2>&1 | awk '/^  HTTP/{code=$2} END{print code}' || true)"
+      if [[ "$status" == "200" ]]; then
+        return 0
+      fi
+      if [[ "$status" != "404" ]]; then
+        log "Download failed (HTTP $status): $url"
+        return 1
+      fi
+      log "Download not ready (HTTP $status), retry ${attempt}/${max_attempts}: $url"
+      sleep $((attempt * 3))
+      attempt=$((attempt + 1))
+    done
+    log "Download failed (HTTP $status): $url"
+    return 1
   else
     log "Neither curl nor wget found."
     return 1
