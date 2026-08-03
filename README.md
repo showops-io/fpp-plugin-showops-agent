@@ -62,12 +62,38 @@ The Go binary itself lives in the [fpp-agent-monitor](https://github.com/showops
 
 ## Installation
 
-FPP installs the plugin automatically when added via the FPP Plugin Manager. The plugin manager clones this repository into `/home/fpp/media/plugins/showops-agent` and runs `scripts/fpp_install.sh`.
+ShowOps is **not** in FPP's built-in plugin catalog yet, so it will not appear under Available when you only search by name. Install it by pasting the `pluginInfo.json` URL (details below), or use the manual steps.
+
+### Install via FPP Plugin Manager
+
+FPP only accepts a **raw `pluginInfo.json` URL**, not the GitHub repository homepage or `.git` clone URL.
+
+1. In FPP, set **Status → Settings → UI → UI Level** to **Developer** (URL paste is disabled in Basic UI).
+2. Open **Content Setup → Plugin Manager**.
+3. Paste this exact URL into the search box:
+
+```text
+https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json
+```
+
+4. When the ShowOps Agent card appears, click **Install**.
+
+FPP then clones `srcURL` into `/home/fpp/media/plugins/showops-agent` and runs `scripts/fpp_install.sh`.
+
+**Common failures**
+
+| What you pasted / did | What happens |
+|----------------------|--------------|
+| GitHub repo URL (`…/fpp-plugin-showops-agent`) | Fetch fails — FPP rewrites it to a non-file raw URL |
+| Correct `pluginInfo.json` URL but Basic UI | Nothing loads — URL install requires Developer UI |
+| Old personal raw URL (`jlwright325/fpp-plugin-monitor-agent`) | May show as incompatible on non–FPP-9 majors (`maxFPPVersion: "0"`) |
 
 ### Manual installation
 
 ```bash
-cd /home/fpp/media/plugins/showops-agent
+cd /home/fpp/media/plugins
+sudo git clone --branch main https://github.com/showops-io/fpp-plugin-showops-agent.git showops-agent
+cd showops-agent
 bash scripts/fpp_install.sh
 ```
 

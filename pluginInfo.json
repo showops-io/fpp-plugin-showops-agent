@@ -6,7 +6,7 @@
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
-  "instructions": "Configure via FPP UI: Plugins → ShowOps Configuration.",
+  "instructions": "Install: set FPP UI Level to Developer, then paste https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json into Plugin Manager. Configure via Plugins → ShowOps Configuration.",
   "versions": [
     {
       "minFPPVersion": "7.0",
