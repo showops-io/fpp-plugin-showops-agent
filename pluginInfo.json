@@ -9,8 +9,15 @@
   "instructions": "Configure via FPP UI: Plugins → ShowOps Configuration.",
   "versions": [
     {
+      "minFPPVersion": "7.0",
+      "maxFPPVersion": "8.99",
+      "branch": "main",
+      "sha": "",
+      "allowUpdates": 1
+    },
+    {
       "minFPPVersion": "9.0",
-      "maxFPPVersion": "0",
+      "maxFPPVersion": "99.0",
       "branch": "main",
       "sha": "",
       "allowUpdates": 1
