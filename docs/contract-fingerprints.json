@@ -1,31 +1,33 @@
 {
-  "contractVersion": "1.2.0",
+  "contractVersion": "1.3.0",
   "description": "Machine-readable checks for docs/PLUGIN_API_CONTRACT.md. CI fails if plugin paths or UI POST actions drift without updating the contract.",
   "frozenPaths": {
     "userConfigFile": "/home/fpp/media/config/fpp-monitor-agent.json",
-    "pluginInstallDir": "/home/fpp/media/plugins/showops-agent",
+    "pluginInstallDir": "/home/fpp/media/plugins/fpp-plugin-showops-agent",
+    "legacyPluginInstallDir": "/home/fpp/media/plugins/showops-agent",
     "systemdUnitFileName": "fpp-monitor-agent.service",
-    "optAgentBinary": "/opt/fpp-monitor-agent/fpp-monitor-agent"
+    "optAgentBinary": "/opt/fpp-monitor-agent/fpp-monitor-agent",
+    "pluginLogFile": "/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log"
   },
   "pluginUiPostActions": ["pair", "unpair", "restart", "tail"],
   "fileAssertions": [
     {
       "file": "www/showops.php",
       "mustContain": [
-        "/home/fpp/media/config/fpp-monitor-agent.json",
-        "/home/fpp/media/plugins/showops-agent",
+        "fpp-monitor-agent.json",
+        "dirname(__DIR__)",
         "fpp-monitor-agent.service",
-        "action === \"pair\"",
-        "action === \"unpair\"",
-        "action === \"restart\"",
-        "action === \"tail\""
+        "action === 'pair'",
+        "action === 'unpair'",
+        "action === 'restart'",
+        "action === 'tail'"
       ]
     },
     {
       "file": "scripts/fpp_install.sh",
       "mustContain": [
-        "/home/fpp/media/plugins/showops-agent",
-        "/home/fpp/media/config/fpp-monitor-agent.json",
+        "PLUGIN_DIR=\"$REPO_ROOT\"",
+        "fpp-monitor-agent.json",
         "fpp-monitor-agent.service",
         "log_install_session_start"
       ]
@@ -41,7 +43,8 @@
       "file": "scripts/install_common.sh",
       "mustContain": [
         "FPP_MONITOR_INSTALL_RUN_ID",
-        "install_run_id="
+        "install_run_id=",
+        "plugin-${PLUGIN_REPO_NAME}.log"
       ]
     },
     {
@@ -68,7 +71,14 @@
     },
     {
       "file": "menu.inc",
-      "mustContain": ["showops.php"]
+      "mustContain": ["showops.php", "'type' => 'content'"]
+    },
+    {
+      "file": "pluginInfo.json",
+      "mustContain": [
+        "\"repoName\": \"fpp-plugin-showops-agent\"",
+        "fpp-plugin-showops-agent.git"
+      ]
     }
   ]
 }

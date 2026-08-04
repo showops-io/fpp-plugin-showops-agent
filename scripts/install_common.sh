@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOG_FILE="${FPP_MONITOR_AGENT_LOG_FILE:-/home/fpp/media/logs/fpp-monitor-agent-install.log}"
+# Resolve FPP log directory the supported way (§1). Fall back for dry-run off-box.
+: "${FPPDIR:=/opt/fpp}"
+if [[ -f "${FPPDIR}/scripts/common" ]]; then
+  # Avoid polluting caller shell options if common is noisy.
+  set +e
+  # shellcheck disable=SC1090,SC1091
+  . "${FPPDIR}/scripts/common" >/dev/null 2>&1
+  set -e
+fi
+: "${MEDIADIR:=/home/fpp/media}"
+: "${LOGDIR:=${MEDIADIR}/logs}"
+
+# PLUGIN_GUIDELINES.md §1: exactly one runtime log at ${LOGDIR}/plugin-<repoName>.log
+PLUGIN_REPO_NAME="${SHOWOPS_PLUGIN_REPO_NAME:-fpp-plugin-showops-agent}"
+LOG_FILE="${FPP_MONITOR_AGENT_LOG_FILE:-${LOGDIR}/plugin-${PLUGIN_REPO_NAME}.log}"
 
 log() {
-  local message="[fpp-monitor-agent] $*"
+  local message="[${PLUGIN_REPO_NAME}] $*"
   if [[ -n "$LOG_FILE" ]] && ! is_dry_run; then
     ensure_dir "$(dirname "$LOG_FILE")"
     if have_command tee; then
@@ -92,8 +106,14 @@ ensure_dir() {
   fi
 }
 
-can_sudo() {
-  have_command sudo && sudo -n true >/dev/null 2>&1
+is_root() {
+  [[ "$(id -u)" -eq 0 ]]
+}
+
+# Install scripts already run as root on FPP (PLUGIN_GUIDELINES.md §2.4 — no sudo).
+# Keep a non-root path only for local DRY_RUN / developer machines.
+can_privileged() {
+  is_root || (have_command sudo && sudo -n true >/dev/null 2>&1)
 }
 
 is_dry_run() {
@@ -143,10 +163,17 @@ run_cmd_capture() {
   "$@" 2>&1
 }
 
-run_cmd_sudo() {
-  if can_sudo; then
+# Prefer direct root execution; only escalate when not root (dev hosts).
+run_privileged() {
+  if is_root; then
+    run_cmd "$@"
+  elif have_command sudo && sudo -n true >/dev/null 2>&1; then
     run_cmd sudo "$@"
   else
     run_cmd "$@"
   fi
 }
+
+# Back-compat aliases used by older script revisions / local wrappers.
+can_sudo() { can_privileged; }
+run_cmd_sudo() { run_privileged "$@"; }
