@@ -607,11 +607,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
-        // Always nudge the agent; ignore flaky process detection — the code is the truth.
         $startMessages = array();
         $startErrors = array();
         restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
-        $config = wait_for_pairing_code($configPath, 8);
+        $config = wait_for_pairing_code($configPath, 15);
+        // Agent may write the code just after the wait loop — one last read.
+        if (empty($config['pairing_code'])) {
+          usleep(800000);
+          clearstatcache(true, $configPath);
+          $config = read_config($configPath);
+        }
         if (!empty($config['pairing_code'])) {
           $messages = array('Pairing code ready — claim it in ShowOps → Devices.');
           $errors = array();
@@ -733,6 +738,20 @@ if ($enrolled) {
 } else {
   $step = 'pair';
 }
+
+// Never show "no code yet" when the code is already on screen.
+if ($pairingCode !== '') {
+  $filtered = array();
+  foreach ($errors as $err) {
+    if (strpos($err, 'No pairing code yet') === false) {
+      $filtered[] = $err;
+    }
+  }
+  $errors = $filtered;
+  if (empty($messages) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'pair') {
+    $messages[] = 'Pairing code ready — claim it in ShowOps → Devices.';
+  }
+}
 ?>
 
 <style>
@@ -762,7 +781,7 @@ if ($enrolled) {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(15, 23, 42, 0.88);
   color: #fff;
   align-items: center;
   justify-content: center;
@@ -771,17 +790,31 @@ if ($enrolled) {
 }
 .showops-page.showops-is-busy .showops-busy {
   display: flex;
+  flex-direction: column;
 }
 .showops-page .showops-busy strong {
   display: block;
   font-size: 1.25rem;
   margin-bottom: 0.5rem;
 }
+.showops-page .showops-busy .showops-spinner {
+  width: 2rem;
+  height: 2rem;
+  margin: 0 auto 1rem;
+  border: 3px solid rgba(255,255,255,0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: showops-spin 0.8s linear infinite;
+}
+@keyframes showops-spin {
+  to { transform: rotate(360deg); }
+}
 </style>
 
 <div class="container-fluid showops-page px-0 px-sm-2" id="showops-root">
   <div class="showops-busy" id="showops-busy" aria-live="polite">
     <div>
+      <div class="showops-spinner" aria-hidden="true"></div>
       <strong id="showops-busy-title">Working…</strong>
       <div id="showops-busy-body">Please wait. Do not click again.</div>
     </div>
@@ -890,6 +923,15 @@ if ($enrolled) {
   if (!root) return;
   var titleEl = document.getElementById('showops-busy-title');
   var bodyEl = document.getElementById('showops-busy-body');
+
+  function showBusy(btn) {
+    var title = (btn && btn.getAttribute('data-busy-title')) || 'Working…';
+    var body = (btn && btn.getAttribute('data-busy-body')) || 'Please wait. Do not click again.';
+    if (titleEl) titleEl.textContent = title;
+    if (bodyEl) bodyEl.textContent = body;
+    root.classList.add('showops-is-busy');
+  }
+
   root.querySelectorAll('.showops-action-form').forEach(function (form) {
     form.addEventListener('click', function (ev) {
       var t = ev.target;
@@ -898,15 +940,32 @@ if ($enrolled) {
       }
       if (t && t !== form) form._showopsBtn = t;
     }, true);
-    form.addEventListener('submit', function () {
+
+    form.addEventListener('submit', function (ev) {
+      // Keep this document painted with the overlay while PHP works.
+      // A normal form navigation blanks the FPP pane (looks like a black crash).
+      if (typeof window.fetch !== 'function' || typeof window.FormData !== 'function') {
+        showBusy(form._showopsBtn || null);
+        return;
+      }
+      ev.preventDefault();
       var btn = form._showopsBtn;
-      var title = (btn && btn.getAttribute('data-busy-title')) || 'Working…';
-      var body = (btn && btn.getAttribute('data-busy-body')) || 'Please wait. Do not click again.';
-      if (titleEl) titleEl.textContent = title;
-      if (bodyEl) bodyEl.textContent = body;
-      root.classList.add('showops-is-busy');
-      // Critical: never disable the submit control here. Browsers omit disabled
-      // submitter name/value from POST, which made Install Agent do nothing.
+      showBusy(btn);
+      var fd = new FormData(form);
+      if (btn && btn.name && btn.value) {
+        fd.set(btn.name, btn.value);
+      }
+      var url = form.getAttribute('action') || window.location.href;
+      fetch(url, {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      }).then(function () {
+        window.location.reload();
+      }).catch(function () {
+        window.location.reload();
+      });
     });
   });
 })();
