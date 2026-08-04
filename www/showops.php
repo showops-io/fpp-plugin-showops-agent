@@ -190,6 +190,9 @@ function resolve_agent_release_version() {
  * Uses the public ShowOps release channel — GitHub is private and 404s anonymously.
  */
 function install_agent_binary_from_channel($pluginDir, &$messages, &$errors) {
+  @set_time_limit(180);
+  @ini_set('max_execution_time', '180');
+
   $arch = detect_arch();
   if ($arch !== 'arm64' && $arch !== 'armv7') {
     $errors[] = 'Unsupported architecture for ShowOps agent: ' . $arch;
@@ -215,27 +218,19 @@ function install_agent_binary_from_channel($pluginDir, &$messages, &$errors) {
   }
 
   run_cmd(
-    'curl -fsSL -o ' . escapeshellarg($tmpBin) . ' ' . escapeshellarg($base . '/' . $asset),
+    'curl -fsSL --connect-timeout 15 --max-time 120 -o ' . escapeshellarg($tmpBin) . ' ' . escapeshellarg($base . '/' . $asset),
     $output,
     $code
   );
   if ($code !== 0 || !file_exists($tmpBin) || filesize($tmpBin) < 1000) {
-    // Fallback when curl/exec is restricted.
-    $ctx = stream_context_create(array('http' => array('timeout' => 120), 'ssl' => array('verify_peer' => true)));
-    $bytes = @file_get_contents($base . '/' . $asset, false, $ctx);
-    if ($bytes === false || strlen($bytes) < 1000) {
-      @unlink($tmpBin);
-      @unlink($tmpSum);
-      $detail = trim(implode("\n", $output));
-      $errors[] = 'Failed to download ' . $asset . ' from ShowOps release channel' .
-        ($detail !== '' ? (': ' . $detail) : '.');
-      return false;
-    }
-    file_put_contents($tmpBin, $bytes);
+    @unlink($tmpBin);
+    @unlink($tmpSum);
+    $errors[] = 'Failed to download agent ' . $version . ' (' . $arch . '). Check that this FPP can reach api.showops.io, then try Install Agent again.';
+    return false;
   }
 
   run_cmd(
-    'curl -fsSL -o ' . escapeshellarg($tmpSum) . ' ' . escapeshellarg($base . '/checksums.txt'),
+    'curl -fsSL --connect-timeout 10 --max-time 30 -o ' . escapeshellarg($tmpSum) . ' ' . escapeshellarg($base . '/checksums.txt'),
     $output,
     $code
   );
@@ -255,7 +250,7 @@ function install_agent_binary_from_channel($pluginDir, &$messages, &$errors) {
       if ($actual === false || !hash_equals($expected, $actual)) {
         @unlink($tmpBin);
         @unlink($tmpSum);
-        $errors[] = 'Checksum mismatch for downloaded agent binary.';
+        $errors[] = 'Checksum mismatch for downloaded agent binary. Try Install Agent again.';
         return false;
       }
     }
@@ -273,13 +268,12 @@ function install_agent_binary_from_channel($pluginDir, &$messages, &$errors) {
   @chmod($dest, 0755);
   @file_put_contents($binDir . '/VERSION', $version . "\n");
 
-  // Best-effort: make wrapper executable.
   $wrapper = $pluginDir . '/system/fpp-monitor-agent.sh';
   if (file_exists($wrapper)) {
     @chmod($wrapper, 0755);
   }
 
-  $messages[] = 'Installed agent ' . $version . ' (' . $arch . ') into plugin bin/.';
+  $messages[] = 'Installed agent ' . $version . ' (' . $arch . '). Next: Generate Pairing Code.';
   return true;
 }
 
@@ -296,20 +290,23 @@ function try_install_agent($pluginDir, &$messages, &$errors) {
   // Optional: full install script (systemd unit) if passwordless sudo works.
   $script = install_script_path($pluginDir);
   if (file_exists($script)) {
-    $sudoErrors = array();
     run_cmd('sudo -n bash ' . escapeshellarg($script) . ' 2>&1', $output, $code);
     if ($code === 0 && agent_binary_path($pluginDir) !== '') {
       $messages[] = 'Agent installed via fpp_install.sh.';
-      // Clear prior download errors — we recovered.
       $errors = array();
       return true;
-    }
-    if (!empty($output)) {
-      $sudoErrors[] = trim(implode("\n", array_slice($output, -5)));
     }
   }
 
   return agent_binary_path($pluginDir) !== '';
+}
+
+function ensure_agent_present($pluginDir, &$messages, &$errors) {
+  if (agent_binary_path($pluginDir) !== '') {
+    return true;
+  }
+  $errors[] = 'Agent is not installed yet. Click Install Agent first, wait for it to finish, then Generate Pairing Code.';
+  return false;
 }
 
 function plugin_log_path($mediaDir, $pluginRepoName) {
@@ -413,8 +410,8 @@ function start_fallback_runner($fallbackScript, $pluginDir, $configPath, $plugin
       }
     }
     $errors[] = 'Agent binary installed but failed to stay running.' .
-      ($probe !== '' ? (' Probe output: ' . $probe) : '') .
-      ($logTail !== '' ? (' Log: ' . $logTail) : ' (no log output yet)');
+      ($probe !== '' ? (' Detail: ' . substr($probe, 0, 400)) : '') .
+      ($logTail !== '' ? (' Log: ' . substr($logTail, 0, 400)) : '');
     return false;
   }
 
@@ -483,7 +480,7 @@ function try_register_systemd_unit($pluginDir, $configPath, $pluginLogPath, &$me
 }
 
 function restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, &$messages, &$errors) {
-  if (!try_install_agent($pluginDir, $messages, $errors)) {
+  if (!ensure_agent_present($pluginDir, $messages, $errors)) {
     return false;
   }
 
@@ -509,7 +506,7 @@ function restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $
       $pluginLogPath,
       $messages,
       $errors,
-      'Systemd restart failed' . ($detail !== '' ? (': ' . $detail) : '') . '.'
+      'Systemd restart failed' . ($detail !== '' ? (': ' . substr($detail, 0, 200)) : '') . '.'
     );
   }
 
@@ -581,7 +578,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'restart') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
-    if (try_install_agent($pluginDir, $messages, $errors)) {
+    $errors = array();
+    if (agent_binary_path($pluginDir) !== '') {
+      $messages[] = 'Agent is already installed.';
+      restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
+    } elseif (try_install_agent($pluginDir, $messages, $errors)) {
       restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
     }
   } elseif ($action === 'tail') {
@@ -637,16 +638,22 @@ if ($statusUpper === 'ALREADY_PAIRED' || strpos($logs, 'http_status_409') !== fa
 <div class="container-fluid showops-page px-0 px-sm-2">
   <h2 class="mb-3">ShowOps Configuration</h2>
   <p class="text-body-secondary mb-3">
-    Pair this Falcon Player with ShowOps, then claim the code under Devices on showops.io.
+    <?php if (!$installed): ?>
+      Step 1: Install Agent. Step 2: Generate Pairing Code. Step 3: Claim the code in ShowOps → Devices.
+    <?php elseif ($pairingCode !== '' && !$enrolled): ?>
+      Copy the pairing code below into ShowOps → Devices → Claim an FPP. You do not need Install Agent.
+    <?php else: ?>
+      Generate a pairing code, then claim it under Devices on showops.io.
+    <?php endif; ?>
   </p>
 
   <?php foreach ($messages as $msg): ?>
     <div class="alert alert-success"><?php echo h($msg); ?></div>
   <?php endforeach; ?>
-  <?php foreach ($errors as $msg): ?>
-    <div class="alert alert-danger"><?php echo h($msg); ?></div>
+  <?php foreach (array_slice($errors, 0, 3) as $msg): ?>
+    <div class="alert alert-danger"><?php echo h(strlen($msg) > 500 ? substr($msg, 0, 500) . '…' : $msg); ?></div>
   <?php endforeach; ?>
-  <?php if ($pairingHint !== ''): ?>
+  <?php if ($pairingHint !== '' && $pairingCode === ''): ?>
     <div class="alert alert-warning"><?php echo h($pairingHint); ?></div>
   <?php endif; ?>
 
@@ -725,17 +732,22 @@ if ($statusUpper === 'ALREADY_PAIRED' || strpos($logs, 'http_status_409') !== fa
         <div class="showops-actions mt-2">
           <?php if (!$installed): ?>
             <button class="btn btn-primary" type="submit" name="action" value="install">
-              Install Agent
+              1. Install Agent
             </button>
           <?php endif; ?>
-          <button class="btn btn-success" type="submit" name="action" value="pair" <?php echo $enrolled ? 'disabled' : ''; ?>>
-            Generate Pairing Code
+          <button class="btn btn-success" type="submit" name="action" value="pair" <?php echo ($enrolled || !$installed) ? 'disabled' : ''; ?>>
+            <?php echo !$installed ? '2. Generate Pairing Code' : 'Generate Pairing Code'; ?>
           </button>
           <button class="btn btn-outline-secondary" type="submit" name="action" value="unpair" <?php echo $enrolled ? '' : 'disabled'; ?>>
             Unpair / Reset
           </button>
-          <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart Agent</button>
+          <button class="btn btn-outline-secondary" type="submit" name="action" value="restart" <?php echo !$installed ? 'disabled' : ''; ?>>Restart Agent</button>
         </div>
+        <?php if (!$installed): ?>
+          <p class="text-body-secondary small mt-2 mb-0">
+            Install downloads the agent (~7MB) and can take up to a minute. Do not click repeatedly.
+          </p>
+        <?php endif; ?>
       </form>
     </div>
   </div>
