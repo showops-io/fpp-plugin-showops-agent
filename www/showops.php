@@ -424,6 +424,122 @@ function pairing_code_usable($code, $expiresAt) {
   return $ts > time();
 }
 
+function compute_device_fingerprint() {
+  $parts = array();
+  foreach (array('/etc/machine-id', '/var/lib/dbus/machine-id') as $path) {
+    if (!is_readable($path)) {
+      continue;
+    }
+    $v = trim((string)@file_get_contents($path));
+    if ($v !== '') {
+      $parts[] = 'mid:' . $v;
+      break;
+    }
+  }
+
+  $macs = array();
+  foreach (glob('/sys/class/net/*') as $dir) {
+    $name = basename($dir);
+    if ($name === 'lo' || preg_match('/^(docker|veth|br-|tun|tap|wg|zt|tailscale)/', $name)) {
+      continue;
+    }
+    $addrFile = $dir . '/address';
+    if (!is_readable($addrFile)) {
+      continue;
+    }
+    $mac = strtolower(trim((string)@file_get_contents($addrFile)));
+    if ($mac === '' || $mac === '00:00:00:00:00:00') {
+      continue;
+    }
+    $macs[$name] = $mac;
+  }
+  ksort($macs);
+  foreach ($macs as $mac) {
+    $parts[] = 'mac:' . $mac;
+  }
+
+  if (empty($parts)) {
+    return '';
+  }
+  return hash('sha256', implode('|', $parts));
+}
+
+function http_json_post($url, $payload, &$error, $timeoutSec = 20) {
+  $error = '';
+  $body = json_encode($payload);
+  if ($body === false) {
+    $error = 'Failed to encode request.';
+    return null;
+  }
+
+  $tmp = tempnam(sys_get_temp_dir(), 'showopspost');
+  if ($tmp === false) {
+    $error = 'Cannot create temp file.';
+    return null;
+  }
+
+  $cmd = 'curl -sSL --connect-timeout 10 --max-time ' . intval($timeoutSec) .
+    ' -H ' . escapeshellarg('Content-Type: application/json') .
+    ' -d ' . escapeshellarg($body) .
+    ' -o ' . escapeshellarg($tmp) .
+    ' -w ' . escapeshellarg('%{http_code}') .
+    ' ' . escapeshellarg($url);
+  run_cmd($cmd, $output, $code);
+  $status = isset($output[0]) ? trim($output[0]) : '';
+  $raw = @file_get_contents($tmp);
+  @unlink($tmp);
+
+  if ($code !== 0 || $raw === false || $status === '') {
+    // PHP stream fallback when exec/curl is restricted.
+    $ctx = stream_context_create(array(
+      'http' => array(
+        'method' => 'POST',
+        'header' => "Content-Type: application/json\r\n",
+        'content' => $body,
+        'timeout' => $timeoutSec,
+        'ignore_errors' => true,
+      ),
+      'ssl' => array('verify_peer' => true, 'verify_peer_name' => true),
+    ));
+    $raw = @file_get_contents($url, false, $ctx);
+    $status = '0';
+    if (isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
+      $status = $m[1];
+    }
+    if ($raw === false) {
+      $error = 'Could not reach ShowOps API.';
+      return null;
+    }
+  }
+
+  $data = json_decode((string)$raw, true);
+  if (!is_array($data)) {
+    $error = 'Invalid response from ShowOps API (HTTP ' . $status . ').';
+    return null;
+  }
+  $data['_http_status'] = intval($status);
+  return $data;
+}
+
+function create_pairing_code_via_api($apiBase, $fingerprint, &$error) {
+  $url = rtrim($apiBase, '/') . '/v1/pairing/requests';
+  $resp = http_json_post($url, array('device_fingerprint' => $fingerprint), $error, 25);
+  if ($resp === null) {
+    return null;
+  }
+  $status = isset($resp['_http_status']) ? intval($resp['_http_status']) : 0;
+  if ($status === 429 || (isset($resp['error']) && $resp['error'] === 'rate_limited')) {
+    $error = 'Pairing is rate-limited. Wait a couple of minutes, then try once.';
+    return null;
+  }
+  if ($status < 200 || $status >= 300 || empty($resp['pairing_code']) || empty($resp['request_id'])) {
+    $err = isset($resp['error']) ? (string)$resp['error'] : ('HTTP ' . $status);
+    $error = 'Could not create pairing code (' . $err . ').';
+    return null;
+  }
+  return $resp;
+}
+
 function ensure_writable_log($preferredLog, $pluginDir) {
   $dir = dirname($preferredLog);
   if (!is_dir($dir)) {
@@ -589,42 +705,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = isset($_POST['action']) ? $_POST['action'] : '';
 
   if ($action === 'pair') {
-    if (empty($errors)) {
+    if (!ensure_agent_present($pluginDir, $messages, $errors)) {
+      // keep error
+    } else {
       $current = read_config($configPath);
-      $updated = $current;
-      $updated['api_base_url'] = 'https://api.showops.io';
-      $updated['device_id'] = '';
-      $updated['device_token'] = '';
-      $updated['enrollment_token'] = '';
-      $updated['last_heartbeat_ts'] = '';
-      $updated['pairing_requested'] = true;
-      $updated['pairing_request_id'] = '';
-      $updated['pairing_code'] = '';
-      $updated['pairing_expires_at'] = '';
-      $updated['pairing_status'] = '';
-      $updated['pairing_device_nonce'] = '';
-      $updated['unpair_requested'] = false;
-
-      $error = '';
-      if (write_config_atomic($configPath, $updated, $error)) {
-        $startMessages = array();
-        $startErrors = array();
-        restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
-        $config = wait_for_pairing_code($configPath, 15);
-        // Agent may write the code just after the wait loop — one last read.
-        if (empty($config['pairing_code'])) {
-          usleep(800000);
-          clearstatcache(true, $configPath);
-          $config = read_config($configPath);
-        }
-        if (!empty($config['pairing_code'])) {
-          $messages = array('Pairing code ready — claim it in ShowOps → Devices.');
-          $errors = array();
-        } else {
-          $errors[] = 'No pairing code yet. Wait a few seconds and refresh, or click Generate Pairing Code once more.';
-        }
+      $apiBase = !empty($current['api_base_url']) ? $current['api_base_url'] : 'https://api.showops.io';
+      $fingerprint = isset($current['device_fingerprint']) ? trim((string)$current['device_fingerprint']) : '';
+      if ($fingerprint === '') {
+        $fingerprint = compute_device_fingerprint();
+      }
+      if ($fingerprint === '') {
+        $errors[] = 'Could not determine device identity for pairing.';
       } else {
-        $errors[] = $error;
+        $apiError = '';
+        $resp = create_pairing_code_via_api($apiBase, $fingerprint, $apiError);
+        if ($resp === null) {
+          $errors[] = $apiError !== '' ? $apiError : 'Could not create pairing code.';
+        } else {
+          $updated = $current;
+          $updated['api_base_url'] = $apiBase;
+          $updated['device_id'] = '';
+          $updated['device_token'] = '';
+          $updated['enrollment_token'] = '';
+          $updated['last_heartbeat_ts'] = '';
+          $updated['device_fingerprint'] = $fingerprint;
+          $updated['pairing_requested'] = false;
+          $updated['pairing_request_id'] = (string)$resp['request_id'];
+          $updated['pairing_code'] = (string)$resp['pairing_code'];
+          $updated['pairing_expires_at'] = isset($resp['expires_at']) ? (string)$resp['expires_at'] : '';
+          $updated['pairing_status'] = 'PENDING';
+          $updated['pairing_device_nonce'] = isset($resp['device_nonce']) ? (string)$resp['device_nonce'] : '';
+          $updated['unpair_requested'] = false;
+
+          $writeErr = '';
+          if (!write_config_atomic($configPath, $updated, $writeErr)) {
+            $errors[] = $writeErr !== '' ? $writeErr : 'Failed to save pairing code.';
+          } else {
+            // Start/restart agent so it can poll until the code is claimed.
+            $startMessages = array();
+            $startErrors = array();
+            restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
+            $messages = array('Pairing code ready — claim it in ShowOps → Devices.');
+            $errors = array();
+          }
+        }
       }
     }
   } elseif ($action === 'unpair') {
@@ -748,9 +872,6 @@ if ($pairingCode !== '') {
     }
   }
   $errors = $filtered;
-  if (empty($messages) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'pair') {
-    $messages[] = 'Pairing code ready — claim it in ShowOps → Devices.';
-  }
 }
 ?>
 
@@ -776,50 +897,9 @@ if ($pairingCode !== '') {
 .showops-page .showops-muted-details {
   margin-top: 1rem;
 }
-.showops-page .showops-busy {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  background: rgba(15, 23, 42, 0.88);
-  color: #fff;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 1.5rem;
-}
-.showops-page.showops-is-busy .showops-busy {
-  display: flex;
-  flex-direction: column;
-}
-.showops-page .showops-busy strong {
-  display: block;
-  font-size: 1.25rem;
-  margin-bottom: 0.5rem;
-}
-.showops-page .showops-busy .showops-spinner {
-  width: 2rem;
-  height: 2rem;
-  margin: 0 auto 1rem;
-  border: 3px solid rgba(255,255,255,0.25);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: showops-spin 0.8s linear infinite;
-}
-@keyframes showops-spin {
-  to { transform: rotate(360deg); }
-}
 </style>
 
 <div class="container-fluid showops-page px-0 px-sm-2" id="showops-root">
-  <div class="showops-busy" id="showops-busy" aria-live="polite">
-    <div>
-      <div class="showops-spinner" aria-hidden="true"></div>
-      <strong id="showops-busy-title">Working…</strong>
-      <div id="showops-busy-body">Please wait. Do not click again.</div>
-    </div>
-  </div>
-
   <h2 class="mb-2">ShowOps</h2>
 
   <?php foreach ($messages as $msg): ?>
@@ -831,14 +911,12 @@ if ($pairingCode !== '') {
 
   <div class="card mb-3 border bg-body-tertiary">
     <div class="card-body">
-      <form method="post" action="" class="showops-action-form">
+      <form method="post">
         <?php if ($step === 'install'): ?>
           <h3 class="h5">Install the agent</h3>
-          <p class="text-body-secondary">Downloads the monitoring agent (~7MB). Click once and wait.</p>
+          <p class="text-body-secondary">Downloads the monitoring agent (~7MB). Click once and wait — the page may pause briefly while it downloads.</p>
           <div class="showops-actions">
-            <button class="btn btn-primary btn-lg" type="submit" name="action" value="install"
-              data-busy-title="Installing agent…"
-              data-busy-body="Downloading and starting. This can take up to a minute.">
+            <button class="btn btn-primary btn-lg" type="submit" name="action" value="install">
               Install Agent
             </button>
           </div>
@@ -855,9 +933,7 @@ if ($pairingCode !== '') {
             <div class="alert alert-warning">This player is already linked in ShowOps. Remove it under Devices, then generate a new code.</div>
           <?php endif; ?>
           <div class="showops-actions">
-            <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" <?php echo $rateLimited ? 'disabled' : ''; ?>
-              data-busy-title="Creating pairing code…"
-              data-busy-body="Almost done. Keep this page open.">
+            <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" <?php echo $rateLimited ? 'disabled' : ''; ?>>
               Generate Pairing Code
             </button>
           </div>
@@ -868,12 +944,8 @@ if ($pairingCode !== '') {
           <div class="showops-code fw-bold font-monospace mb-1"><?php echo h($pairingCode); ?></div>
           <div class="text-body-secondary small mb-3">Expires: <?php echo h($pairingExpires !== '' ? $pairingExpires : 'soon'); ?></div>
           <div class="showops-actions">
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="pair"
-              data-busy-title="Creating a new code…"
-              data-busy-body="Please wait.">Get a new code</button>
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart"
-              data-busy-title="Restarting agent…"
-              data-busy-body="Please wait.">Refresh / restart agent</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="pair">Get a new code</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart agent</button>
           </div>
 
         <?php else: /* paired */ ?>
@@ -885,12 +957,8 @@ if ($pairingCode !== '') {
             <?php if ($heartbeatTs !== ''): ?> · last heartbeat <?php echo h($heartbeatTs); ?><?php endif; ?>
           </p>
           <div class="showops-actions">
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart"
-              data-busy-title="Restarting agent…"
-              data-busy-body="Please wait.">Restart Agent</button>
-            <button class="btn btn-outline-danger" type="submit" name="action" value="unpair"
-              data-busy-title="Clearing pairing…"
-              data-busy-body="Please wait.">Unpair</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart Agent</button>
+            <button class="btn btn-outline-danger" type="submit" name="action" value="unpair">Unpair</button>
           </div>
         <?php endif; ?>
       </form>
@@ -908,7 +976,7 @@ if ($pairingCode !== '') {
     <?php if ($installed || $enrolled): ?>
       <div class="card mt-2 border bg-body-tertiary">
         <div class="card-body">
-          <form method="post" action="" class="mb-2 showops-action-form">
+          <form method="post" class="mb-2">
             <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="tail">Refresh Logs</button>
           </form>
           <pre class="showops-pre border rounded p-2 bg-body text-body mb-0"><?php echo h($logs !== '' ? $logs : 'No log output yet.'); ?></pre>
@@ -917,56 +985,3 @@ if ($pairingCode !== '') {
     <?php endif; ?>
   </details>
 </div>
-<script>
-(function () {
-  var root = document.getElementById('showops-root');
-  if (!root) return;
-  var titleEl = document.getElementById('showops-busy-title');
-  var bodyEl = document.getElementById('showops-busy-body');
-
-  function showBusy(btn) {
-    var title = (btn && btn.getAttribute('data-busy-title')) || 'Working…';
-    var body = (btn && btn.getAttribute('data-busy-body')) || 'Please wait. Do not click again.';
-    if (titleEl) titleEl.textContent = title;
-    if (bodyEl) bodyEl.textContent = body;
-    root.classList.add('showops-is-busy');
-  }
-
-  root.querySelectorAll('.showops-action-form').forEach(function (form) {
-    form.addEventListener('click', function (ev) {
-      var t = ev.target;
-      while (t && t !== form && !(t.tagName === 'BUTTON' && t.type === 'submit')) {
-        t = t.parentNode;
-      }
-      if (t && t !== form) form._showopsBtn = t;
-    }, true);
-
-    form.addEventListener('submit', function (ev) {
-      // Keep this document painted with the overlay while PHP works.
-      // A normal form navigation blanks the FPP pane (looks like a black crash).
-      if (typeof window.fetch !== 'function' || typeof window.FormData !== 'function') {
-        showBusy(form._showopsBtn || null);
-        return;
-      }
-      ev.preventDefault();
-      var btn = form._showopsBtn;
-      showBusy(btn);
-      var fd = new FormData(form);
-      if (btn && btn.name && btn.value) {
-        fd.set(btn.name, btn.value);
-      }
-      var url = form.getAttribute('action') || window.location.href;
-      fetch(url, {
-        method: 'POST',
-        body: fd,
-        credentials: 'same-origin',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-      }).then(function () {
-        window.location.reload();
-      }).catch(function () {
-        window.location.reload();
-      });
-    });
-  });
-})();
-</script>
