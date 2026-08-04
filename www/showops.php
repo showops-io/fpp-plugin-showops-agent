@@ -170,28 +170,146 @@ function install_script_path($pluginDir) {
   return $pluginDir . '/scripts/fpp_install.sh';
 }
 
+function resolve_agent_release_version() {
+  $ctx = stream_context_create(array(
+    'http' => array('timeout' => 15, 'ignore_errors' => true),
+    'ssl' => array('verify_peer' => true, 'verify_peer_name' => true),
+  ));
+  $raw = @file_get_contents('https://api.showops.io/v1/agent/releases/latest', false, $ctx);
+  if ($raw !== false) {
+    $data = json_decode($raw, true);
+    if (is_array($data) && !empty($data['version'])) {
+      return (string)$data['version'];
+    }
+  }
+  return 'v1.2.29';
+}
+
+/**
+ * Download the agent binary into the plugin bin/ tree (no root required).
+ * Uses the public ShowOps release channel — GitHub is private and 404s anonymously.
+ */
+function install_agent_binary_from_channel($pluginDir, &$messages, &$errors) {
+  $arch = detect_arch();
+  if ($arch !== 'arm64' && $arch !== 'armv7') {
+    $errors[] = 'Unsupported architecture for ShowOps agent: ' . $arch;
+    return false;
+  }
+
+  $version = resolve_agent_release_version();
+  $asset = 'fpp-monitor-agent-linux-' . $arch;
+  $base = 'https://api.showops.io/v1/agent/releases/' . rawurlencode($version);
+  $binDir = $pluginDir . '/bin';
+  $dest = $binDir . '/fpp-monitor-agent';
+
+  if (!is_dir($binDir) && !@mkdir($binDir, 0755, true)) {
+    $errors[] = 'Cannot create ' . $binDir . ' (permission denied).';
+    return false;
+  }
+
+  $tmpBin = tempnam(sys_get_temp_dir(), 'showopsbin');
+  $tmpSum = tempnam(sys_get_temp_dir(), 'showopssum');
+  if ($tmpBin === false || $tmpSum === false) {
+    $errors[] = 'Cannot create temp files for agent download.';
+    return false;
+  }
+
+  run_cmd(
+    'curl -fsSL -o ' . escapeshellarg($tmpBin) . ' ' . escapeshellarg($base . '/' . $asset),
+    $output,
+    $code
+  );
+  if ($code !== 0 || !file_exists($tmpBin) || filesize($tmpBin) < 1000) {
+    // Fallback when curl/exec is restricted.
+    $ctx = stream_context_create(array('http' => array('timeout' => 120), 'ssl' => array('verify_peer' => true)));
+    $bytes = @file_get_contents($base . '/' . $asset, false, $ctx);
+    if ($bytes === false || strlen($bytes) < 1000) {
+      @unlink($tmpBin);
+      @unlink($tmpSum);
+      $detail = trim(implode("\n", $output));
+      $errors[] = 'Failed to download ' . $asset . ' from ShowOps release channel' .
+        ($detail !== '' ? (': ' . $detail) : '.');
+      return false;
+    }
+    file_put_contents($tmpBin, $bytes);
+  }
+
+  run_cmd(
+    'curl -fsSL -o ' . escapeshellarg($tmpSum) . ' ' . escapeshellarg($base . '/checksums.txt'),
+    $output,
+    $code
+  );
+  if ($code === 0 && file_exists($tmpSum)) {
+    $sums = file_get_contents($tmpSum);
+    $expected = '';
+    foreach (preg_split("/\r\n|\n|\r/", (string)$sums) as $line) {
+      $line = trim($line);
+      if ($line !== '' && substr($line, -strlen($asset)) === $asset) {
+        $parts = preg_split('/\s+/', $line);
+        $expected = isset($parts[0]) ? $parts[0] : '';
+        break;
+      }
+    }
+    if ($expected !== '') {
+      $actual = hash_file('sha256', $tmpBin);
+      if ($actual === false || !hash_equals($expected, $actual)) {
+        @unlink($tmpBin);
+        @unlink($tmpSum);
+        $errors[] = 'Checksum mismatch for downloaded agent binary.';
+        return false;
+      }
+    }
+  }
+  @unlink($tmpSum);
+
+  if (!@rename($tmpBin, $dest)) {
+    if (!@copy($tmpBin, $dest)) {
+      @unlink($tmpBin);
+      $errors[] = 'Failed to install agent binary to ' . $dest;
+      return false;
+    }
+    @unlink($tmpBin);
+  }
+  @chmod($dest, 0755);
+  @file_put_contents($binDir . '/VERSION', $version . "\n");
+
+  // Best-effort: make wrapper executable.
+  $wrapper = $pluginDir . '/system/fpp-monitor-agent.sh';
+  if (file_exists($wrapper)) {
+    @chmod($wrapper, 0755);
+  }
+
+  $messages[] = 'Installed agent ' . $version . ' (' . $arch . ') into plugin bin/.';
+  return true;
+}
+
 function try_install_agent($pluginDir, &$messages, &$errors) {
   if (agent_binary_path($pluginDir) !== '') {
     return true;
   }
 
-  $script = install_script_path($pluginDir);
-  if (!file_exists($script)) {
-    $errors[] = 'Install script missing at ' . $script . '. Reinstall the ShowOps plugin from Plugin Manager.';
-    return false;
-  }
-
-  // FPP Plugin Manager normally runs this as root; web UI may have passwordless sudo.
-  run_cmd('sudo -n bash ' . escapeshellarg($script) . ' 2>&1', $output, $code);
-  if ($code === 0 && agent_binary_path($pluginDir) !== '') {
-    $messages[] = 'Agent binary installed.';
+  // Prefer in-UI download into plugin bin/ — no root / SSH required.
+  if (install_agent_binary_from_channel($pluginDir, $messages, $errors)) {
     return true;
   }
 
-  $detail = trim(implode("\n", array_slice($output, -8)));
-  $errors[] = 'Agent binary is not installed yet. SSH into the FPP and run: sudo bash ' . $script .
-    ($detail !== '' ? (' — last install output: ' . $detail) : '');
-  return false;
+  // Optional: full install script (systemd unit) if passwordless sudo works.
+  $script = install_script_path($pluginDir);
+  if (file_exists($script)) {
+    $sudoErrors = array();
+    run_cmd('sudo -n bash ' . escapeshellarg($script) . ' 2>&1', $output, $code);
+    if ($code === 0 && agent_binary_path($pluginDir) !== '') {
+      $messages[] = 'Agent installed via fpp_install.sh.';
+      // Clear prior download errors — we recovered.
+      $errors = array();
+      return true;
+    }
+    if (!empty($output)) {
+      $sudoErrors[] = trim(implode("\n", array_slice($output, -5)));
+    }
+  }
+
+  return agent_binary_path($pluginDir) !== '';
 }
 
 function plugin_log_path($mediaDir, $pluginRepoName) {
@@ -223,7 +341,7 @@ function tail_logs($serviceName, $lines, $pluginLogPath = '') {
 
 function start_fallback_runner($fallbackScript, $pluginDir, &$messages, &$errors, $reason = '') {
   if (agent_binary_path($pluginDir) === '') {
-    $errors[] = 'Cannot start agent: binary missing. Run: sudo bash ' . install_script_path($pluginDir);
+    $errors[] = 'Cannot start agent: binary missing after install attempt.';
     return false;
   }
 
@@ -282,7 +400,8 @@ function restart_agent($serviceName, $fallbackScript, $pluginDir, &$messages, &$
       $pluginDir,
       $messages,
       $errors,
-      'systemd unit not installed yet — run: sudo bash ' . install_script_path($pluginDir)
+      'systemd unit not registered yet (agent still runs; optional: sudo bash ' .
+        install_script_path($pluginDir) . ').'
     );
     return;
   }
@@ -341,6 +460,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } elseif ($action === 'restart') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
+  } elseif ($action === 'install') {
+    if (try_install_agent($pluginDir, $messages, $errors)) {
+      restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
+    }
   } elseif ($action === 'tail') {
     $logs = tail_logs($serviceName, 50, $pluginLogPath);
   }
@@ -469,6 +592,11 @@ $pairingRequested = !empty($config['pairing_requested']);
         <?php endif; ?>
 
         <div class="showops-actions mt-2">
+          <?php if (!$installed): ?>
+            <button class="btn btn-primary" type="submit" name="action" value="install">
+              Install Agent
+            </button>
+          <?php endif; ?>
           <button class="btn btn-success" type="submit" name="action" value="pair" <?php echo $enrolled ? 'disabled' : ''; ?>>
             Generate Pairing Code
           </button>
