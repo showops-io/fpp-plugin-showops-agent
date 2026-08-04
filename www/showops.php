@@ -82,13 +82,19 @@ function is_systemd() {
 }
 
 function agent_binary_path($pluginDir) {
-  $binPlugin = $pluginDir . '/bin/fpp-monitor-agent';
-  if (is_executable($binPlugin) || file_exists($binPlugin)) {
-    return $binPlugin;
-  }
-  $binLegacy = '/opt/fpp-monitor-agent/fpp-monitor-agent';
-  if (is_executable($binLegacy) || file_exists($binLegacy)) {
-    return $binLegacy;
+  $candidates = array(
+    $pluginDir . '/bin/fpp-monitor-agent',
+    '/opt/fpp-monitor-agent/fpp-monitor-agent',
+  );
+  foreach ($candidates as $bin) {
+    if (!file_exists($bin)) {
+      continue;
+    }
+    // Ignore empty/corrupt stubs left by a failed download.
+    $size = @filesize($bin);
+    if ($size !== false && $size > 1000) {
+      return $bin;
+    }
   }
   return '';
 }
@@ -223,10 +229,24 @@ function install_agent_binary_from_channel($pluginDir, &$messages, &$errors) {
     $code
   );
   if ($code !== 0 || !file_exists($tmpBin) || filesize($tmpBin) < 1000) {
-    @unlink($tmpBin);
-    @unlink($tmpSum);
-    $errors[] = 'Failed to download agent ' . $version . ' (' . $arch . '). Check that this FPP can reach api.showops.io, then try Install Agent again.';
-    return false;
+    // FPP sometimes disables shell exec; fall back to PHP streams.
+    $ctx = stream_context_create(array(
+      'http' => array('timeout' => 120, 'follow_location' => 1),
+      'ssl' => array('verify_peer' => true, 'verify_peer_name' => true),
+    ));
+    $bytes = @file_get_contents($base . '/' . $asset, false, $ctx);
+    if ($bytes === false || strlen($bytes) < 1000) {
+      @unlink($tmpBin);
+      @unlink($tmpSum);
+      $errors[] = 'Failed to download agent ' . $version . ' (' . $arch . '). Check that this FPP can reach api.showops.io, then try Install Agent again.';
+      return false;
+    }
+    if (@file_put_contents($tmpBin, $bytes) === false) {
+      @unlink($tmpBin);
+      @unlink($tmpSum);
+      $errors[] = 'Downloaded agent but could not write temp file.';
+      return false;
+    }
   }
 
   run_cmd(
@@ -613,16 +633,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
     $errors = array();
+    $messages[] = 'Installing agent…';
     clear_local_enrollment($configPath);
     rotate_plugin_log($pluginLogPath);
 
-    if (agent_binary_path($pluginDir) !== '' || try_install_agent($pluginDir, $messages, $errors)) {
+    $ok = false;
+    if (agent_binary_path($pluginDir) !== '') {
+      $ok = true;
+    } else {
+      $ok = try_install_agent($pluginDir, $messages, $errors);
+    }
+
+    if ($ok && agent_binary_path($pluginDir) !== '') {
       $startMessages = array();
       $startErrors = array();
       restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
-      // Binary on disk = install succeeded. Do not scare users with start-detection noise.
       $errors = array();
       $messages = array('Agent installed. Next: Generate Pairing Code.');
+    } elseif (empty($errors)) {
+      $errors[] = 'Install did not complete. Check that this FPP can reach api.showops.io and try again.';
     }
   } elseif ($action === 'tail') {
     $logs = tail_logs($serviceName, 50, $pluginLogPath);
@@ -769,7 +798,7 @@ if ($enrolled) {
 
   <div class="card mb-3 border bg-body-tertiary">
     <div class="card-body">
-      <form method="post" class="showops-action-form">
+      <form method="post" action="" class="showops-action-form">
         <?php if ($step === 'install'): ?>
           <h3 class="h5">Install the agent</h3>
           <p class="text-body-secondary">Downloads the monitoring agent (~7MB). Click once and wait.</p>
@@ -846,7 +875,7 @@ if ($enrolled) {
     <?php if ($installed || $enrolled): ?>
       <div class="card mt-2 border bg-body-tertiary">
         <div class="card-body">
-          <form method="post" class="mb-2 showops-action-form">
+          <form method="post" action="" class="mb-2 showops-action-form">
             <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="tail">Refresh Logs</button>
           </form>
           <pre class="showops-pre border rounded p-2 bg-body text-body mb-0"><?php echo h($logs !== '' ? $logs : 'No log output yet.'); ?></pre>
@@ -861,24 +890,23 @@ if ($enrolled) {
   if (!root) return;
   var titleEl = document.getElementById('showops-busy-title');
   var bodyEl = document.getElementById('showops-busy-body');
-  function showBusy(btn) {
-    var title = (btn && btn.getAttribute('data-busy-title')) || 'Working…';
-    var body = (btn && btn.getAttribute('data-busy-body')) || 'Please wait. Do not click again.';
-    if (titleEl) titleEl.textContent = title;
-    if (bodyEl) bodyEl.textContent = body;
-    root.classList.add('showops-is-busy');
-  }
   root.querySelectorAll('.showops-action-form').forEach(function (form) {
     form.addEventListener('click', function (ev) {
       var t = ev.target;
-      if (t && t.tagName === 'BUTTON' && t.type === 'submit') {
-        form.setAttribute('data-showops-btn', '1');
-        form._showopsBtn = t;
+      while (t && t !== form && !(t.tagName === 'BUTTON' && t.type === 'submit')) {
+        t = t.parentNode;
       }
+      if (t && t !== form) form._showopsBtn = t;
     }, true);
     form.addEventListener('submit', function () {
-      showBusy(form._showopsBtn || null);
-      form.querySelectorAll('button').forEach(function (btn) { btn.disabled = true; });
+      var btn = form._showopsBtn;
+      var title = (btn && btn.getAttribute('data-busy-title')) || 'Working…';
+      var body = (btn && btn.getAttribute('data-busy-body')) || 'Please wait. Do not click again.';
+      if (titleEl) titleEl.textContent = title;
+      if (bodyEl) bodyEl.textContent = body;
+      root.classList.add('showops-is-busy');
+      // Critical: never disable the submit control here. Browsers omit disabled
+      // submitter name/value from POST, which made Install Agent do nothing.
     });
   });
 })();
