@@ -606,6 +606,14 @@ $pairingExpires = isset($config['pairing_expires_at']) ? $config['pairing_expire
 $pairingStatus = isset($config['pairing_status']) ? $config['pairing_status'] : '';
 $pairingRequestId = isset($config['pairing_request_id']) ? $config['pairing_request_id'] : '';
 $pairingRequested = !empty($config['pairing_requested']);
+
+$pairingHint = '';
+$statusUpper = strtoupper($pairingStatus);
+if ($statusUpper === 'ALREADY_PAIRED' || strpos($logs, 'http_status_409') !== false || strpos($logs, 'device_already_paired') !== false) {
+  $pairingHint = 'This FPP is already paired in ShowOps. Open ShowOps → Devices, remove/unpair the existing device for this player, wait a minute, then Generate Pairing Code once.';
+} elseif ($statusUpper === 'RATE_LIMITED' || strpos($logs, 'http_status_429') !== false || strpos($logs, 'rate_limited') !== false) {
+  $pairingHint = 'Pairing is rate-limited after too many attempts. Wait a few minutes, then click Generate Pairing Code once.';
+}
 ?>
 
 <style>
@@ -638,6 +646,9 @@ $pairingRequested = !empty($config['pairing_requested']);
   <?php foreach ($errors as $msg): ?>
     <div class="alert alert-danger"><?php echo h($msg); ?></div>
   <?php endforeach; ?>
+  <?php if ($pairingHint !== ''): ?>
+    <div class="alert alert-warning"><?php echo h($pairingHint); ?></div>
+  <?php endif; ?>
 
   <div class="card mb-3 border bg-body-tertiary">
     <div class="card-body">
