@@ -7,10 +7,11 @@ PLUGIN_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 : "${FPPDIR:=/opt/fpp}"
 if [[ -f "${FPPDIR}/scripts/common" ]]; then
-  set +e
+  # Same trap as install_common.sh: FPP common expands unset LD_LIBRARY_PATH.
+  set +eu
   # shellcheck disable=SC1090,SC1091
-  . "${FPPDIR}/scripts/common" >/dev/null 2>&1
-  set -e
+  . "${FPPDIR}/scripts/common" >/dev/null 2>&1 || true
+  set -euo pipefail
 fi
 : "${MEDIADIR:=/home/fpp/media}"
 : "${LOGDIR:=${MEDIADIR}/logs}"
