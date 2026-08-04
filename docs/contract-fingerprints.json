@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.5.3",
+  "contractVersion": "1.5.4",
   "description": "Machine-readable checks for docs/PLUGIN_API_CONTRACT.md. CI fails if plugin paths or UI POST actions drift without updating the contract.",
   "frozenPaths": {
     "userConfigFile": "/home/fpp/media/plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json",
@@ -41,7 +41,8 @@
         "fpp-monitor-agent.json",
         "fpp-monitor-agent.service",
         "log_install_session_start",
-        "\"restart_fpp_command\": \"\""
+        "\"restart_fpp_command\": \"\"",
+        "$2 == name"
       ]
     },
     {
