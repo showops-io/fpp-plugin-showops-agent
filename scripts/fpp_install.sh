@@ -303,9 +303,6 @@ else
   fi
 fi
 
-# Ensure wrapper is executable in the plugin tree (unit ExecStart points here).
-run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
-
 write_unit_file() {
   local dest="$1"
   local unit_src="$REPO_ROOT/system/fpp-monitor-agent.service"
@@ -321,16 +318,20 @@ write_unit_file() {
     "$unit_src" >"$dest"
 }
 
+# Always render a concrete unit into the plugin tree (support / manual enable).
+GENERATED_UNIT="$PLUGIN_DIR/system/fpp-monitor-agent.generated.service"
+write_unit_file "$GENERATED_UNIT"
+
+# Ensure wrapper is executable in the plugin tree (unit ExecStart points here).
+run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
+
 if is_systemd; then
   log "Installing systemd service"
   if can_privileged; then
-    unit_tmp="$(mktemp)"
-    write_unit_file "$unit_tmp"
-    if ! is_dry_run; then
-      run_privileged install -m 0644 "$unit_tmp" /etc/systemd/system/fpp-monitor-agent.service
-      rm -f "$unit_tmp"
+    if is_dry_run; then
+      log "DRY_RUN: would install $GENERATED_UNIT to /etc/systemd/system/fpp-monitor-agent.service"
     else
-      rm -f "$unit_tmp"
+      run_privileged install -m 0644 "$GENERATED_UNIT" /etc/systemd/system/fpp-monitor-agent.service
     fi
     run_privileged systemctl daemon-reload
     run_privileged systemctl enable fpp-monitor-agent.service
@@ -340,7 +341,7 @@ if is_systemd; then
       log "DRY_RUN: systemctl restart fpp-monitor-agent.service"
     else
       set +e
-      restart_output="$(systemctl restart fpp-monitor-agent.service 2>&1)"
+      restart_output="$(run_privileged systemctl restart fpp-monitor-agent.service 2>&1)"
       restart_code=$?
       set -e
     fi
@@ -356,7 +357,8 @@ if is_systemd; then
       run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
     fi
   else
-    log "Systemd present but cannot privilege-escalate; using fallback runner"
+    log "Systemd present but cannot write /etc/systemd (not root). Using fallback runner."
+    log "To enable systemd later: install -m 0644 $GENERATED_UNIT /etc/systemd/system/fpp-monitor-agent.service && systemctl daemon-reload && systemctl enable --now fpp-monitor-agent.service"
     run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
   fi
 else
