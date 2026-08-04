@@ -28,13 +28,13 @@ Do **not** paste the GitHub repo homepage or a `.git` URL.
 | Path | Purpose |
 |------|---------|
 | `/home/fpp/media/plugins/fpp-plugin-showops-agent` | Plugin (matches `repoName`) |
-| `/home/fpp/media/config/fpp-monitor-agent.json` | Agent config (not overwritten on reinstall) |
-| `/opt/fpp-monitor-agent/fpp-monitor-agent` | Agent binary |
-| `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` | Plugin install/runtime log (FPP-rotated) |
+| `/home/fpp/media/plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json` | Agent config (not overwritten on reinstall) |
+| `/home/fpp/media/plugins/fpp-plugin-showops-agent/bin/fpp-monitor-agent` | Agent binary |
+| `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` | Plugin install + agent log (FPP-rotated) |
 
 ```bash
 systemctl status fpp-monitor-agent.service
-journalctl -u fpp-monitor-agent.service -n 100 --no-pager
+tail -n 100 /home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log
 ```
 
 ## Uninstall
@@ -43,7 +43,7 @@ journalctl -u fpp-monitor-agent.service -n 100 --no-pager
 bash /home/fpp/media/plugins/fpp-plugin-showops-agent/scripts/fpp_uninstall.sh
 ```
 
-Removes the agent binary, systemd unit, config (`fpp-monitor-agent.json`), and related paths. Reinstall creates a fresh config.
+Removes the agent binary, systemd unit, plugindata config, and legacy `/opt` paths. Reinstall creates a fresh config.
 ## Engineers
 
 - Agent binary repo: [fpp-agent-monitor](https://github.com/showops-io/fpp-agent-monitor)

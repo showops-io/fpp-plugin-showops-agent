@@ -35,7 +35,7 @@ note() {
 
 read_installed_version() {
   local path raw
-  for path in "/opt/fpp-monitor-agent/VERSION" "${PLUGIN_DIR}/bin/VERSION"; do
+  for path in "${PLUGIN_DIR}/bin/VERSION" "/opt/fpp-monitor-agent/VERSION"; do
     [[ -r "$path" ]] || continue
     raw="$(tr -d '[:space:]' <"$path" 2>/dev/null)" || continue
     if [[ -n "$raw" ]]; then

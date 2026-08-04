@@ -1,6 +1,6 @@
 # FPP ShowOps monitor plugin — integration contract
 
-**Version:** 1.4.0  
+**Version:** 1.5.0  
 **Slice:** #2 — follows monitor-agent plugin slice #1; scaling and deferral notes live in company issue **SHO-253**.  
 **Status:** Frozen interfaces below are covered by CI (`scripts/verify_plugin_contract.sh`).
 
@@ -17,16 +17,15 @@ Breaking changes to paths, config semantics, or plugin UI actions require **bump
 
 | Symbol | Path | Owner |
 |--------|------|--------|
-| User config | `/home/fpp/media/config/fpp-monitor-agent.json` | Plugin installer creates parent dir; agent + UI read/write |
+| User config | `/home/fpp/media/plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json` | Installer creates plugindata dir; agent + UI read/write (FPP guidelines §5) |
 | Plugin root | `/home/fpp/media/plugins/fpp-plugin-showops-agent` | FPP plugin manager (`repoName`) + `scripts/fpp_install.sh` |
-| Agent binary (privileged install) | `/opt/fpp-monitor-agent/fpp-monitor-agent` | Installer when running as root |
-| Fallback wrapper | `{plugin root}/system/fpp-monitor-agent.sh` | Invoked by systemd unit or manual fallback |
-| Systemd unit | `fpp-monitor-agent.service` (file under `/etc/systemd/system/` or `/lib/systemd/system/`) | Installer |
-| Agent binary (no root) | `{plugin root}/bin/fpp-monitor-agent` | Installer fallback layout |
-| Release tag file | `/opt/fpp-monitor-agent/VERSION` or `{plugin root}/bin/VERSION` | Installer |
-| Plugin log | `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` | Installer / uninstaller (append; FPP rotates) |
+| Agent binary | `{plugin root}/bin/fpp-monitor-agent` | Installer (in-tree; no `/opt`) |
+| Fallback wrapper | `{plugin root}/system/fpp-monitor-agent.sh` | Invoked by systemd unit or manual fallback; appends to plugin log |
+| Systemd unit | `fpp-monitor-agent.service` (file under `/etc/systemd/system/` or `/lib/systemd/system/`) | Installer (paths substituted at install) |
+| Release tag file | `{plugin root}/bin/VERSION` | Installer |
+| Plugin log | `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` | Installer / wrapper / uninstaller (append; FPP rotates) |
 
-Legacy paths `/home/fpp/media/plugins/showops-agent` and `/home/fpp/media/plugins/fpp-monitor-agent` may still appear on upgraded systems; `fpp_uninstall.sh` removes artifacts there when present.
+**Legacy (migrated or cleaned on install/uninstall):** `/home/fpp/media/config/fpp-monitor-agent.json`, `/opt/fpp-monitor-agent/`, `/var/lib/fpp-monitor-agent/`, and old plugin dirs `showops-agent` / `fpp-monitor-agent`.
 
 ---
 
@@ -49,7 +48,9 @@ The **authoritative field list** for operators is in the root [README](../README
 
 ### Uninstall (full cleanup)
 
-Uninstall **deletes** `/home/fpp/media/config/fpp-monitor-agent.json`, the systemd unit, `/opt/fpp-monitor-agent`, `/var/lib/fpp-monitor-agent`, and related symlinks/crontab entries. Nothing plugin-owned should remain outside the plugin directory (FPP “clean up completely”). Reinstall creates a fresh default config.
+Uninstall **deletes** plugindata (`fpp-monitor-agent.json`), the systemd unit, `{plugin root}/bin/`, legacy `/opt` + `/var/lib` + `media/config` paths, and related symlinks/crontab entries. Tracked plugin sources (wrapper, PHP) remain until FPP removes the plugin directory. Reinstall creates a fresh default config.
+
+Default `restart_fpp_command` is **empty**. Prefer FPP’s `restartFlag` over shelling `systemctl restart fpp` (PLUGIN_GUIDELINES.md §3.6 / §4.1).
 
 ### Install / uninstall session correlation
 

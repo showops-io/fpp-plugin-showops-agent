@@ -51,10 +51,10 @@ function showopsAgentDetectCurrentVersion()
     $pluginRoot = dirname(__FILE__);
 
     $versionPaths = array(
-        '/opt/fpp-monitor-agent/VERSION',
         $pluginRoot . '/bin/VERSION',
         $media . '/plugins/fpp-plugin-showops-agent/bin/VERSION',
         $media . '/plugins/showops-agent/bin/VERSION',
+        '/opt/fpp-monitor-agent/VERSION',
     );
 
     foreach ($versionPaths as $path) {

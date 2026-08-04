@@ -1,5 +1,5 @@
 [Unit]
-Description=FPP Monitor Agent
+Description=ShowOps FPP Monitor Agent
 After=network-online.target
 Wants=network-online.target
 
@@ -7,11 +7,13 @@ Wants=network-online.target
 Type=simple
 User=fpp
 Group=fpp
-ExecStart=/opt/fpp-monitor-agent/fpp-monitor-agent
+# Installed by fpp_install.sh with concrete paths substituted.
+ExecStart=__PLUGIN_DIR__/system/fpp-monitor-agent.sh
 Restart=always
 RestartSec=5
-Environment=FPP_MONITOR_AGENT_CONFIG=/home/fpp/media/config/fpp-monitor-agent.json
-# Logs go to journald by default
+Environment=FPP_MONITOR_AGENT_CONFIG=__CONFIG_PATH__
+Environment=FPP_MONITOR_AGENT_BIN=__BIN_PATH__
+Environment=FPP_MONITOR_AGENT_LOG=__LOG_FILE__
 
 [Install]
 WantedBy=multi-user.target

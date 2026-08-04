@@ -1,12 +1,14 @@
 {
-  "contractVersion": "1.4.0",
+  "contractVersion": "1.5.0",
   "description": "Machine-readable checks for docs/PLUGIN_API_CONTRACT.md. CI fails if plugin paths or UI POST actions drift without updating the contract.",
   "frozenPaths": {
-    "userConfigFile": "/home/fpp/media/config/fpp-monitor-agent.json",
+    "userConfigFile": "/home/fpp/media/plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json",
+    "legacyUserConfigFile": "/home/fpp/media/config/fpp-monitor-agent.json",
     "pluginInstallDir": "/home/fpp/media/plugins/fpp-plugin-showops-agent",
     "legacyPluginInstallDir": "/home/fpp/media/plugins/showops-agent",
     "systemdUnitFileName": "fpp-monitor-agent.service",
-    "optAgentBinary": "/opt/fpp-monitor-agent/fpp-monitor-agent",
+    "pluginAgentBinary": "/home/fpp/media/plugins/fpp-plugin-showops-agent/bin/fpp-monitor-agent",
+    "legacyOptAgentBinary": "/opt/fpp-monitor-agent/fpp-monitor-agent",
     "pluginLogFile": "/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log"
   },
   "pluginUiPostActions": ["pair", "unpair", "restart", "tail"],
@@ -14,6 +16,7 @@
     {
       "file": "www/showops.php",
       "mustContain": [
+        "plugindata/",
         "fpp-monitor-agent.json",
         "dirname(__DIR__)",
         "fpp-monitor-agent.service",
@@ -27,15 +30,17 @@
       "file": "scripts/fpp_install.sh",
       "mustContain": [
         "PLUGIN_DIR=\"$REPO_ROOT\"",
+        "plugindata/",
         "fpp-monitor-agent.json",
         "fpp-monitor-agent.service",
-        "log_install_session_start"
+        "log_install_session_start",
+        "\"restart_fpp_command\": \"\""
       ]
     },
     {
       "file": "scripts/fpp_update_check.sh",
       "mustContain": [
-        "/opt/fpp-monitor-agent/VERSION",
+        "bin/VERSION",
         "fpp-agent-monitor"
       ]
     },
@@ -51,7 +56,7 @@
       "file": "scripts/fpp_uninstall.sh",
       "mustContain": [
         "log_install_session_start",
-        "rm -f \"$CONFIG_PATH\"",
+        "PLUGINDATA_DIR",
         "/var/lib/fpp-monitor-agent",
         "Uninstall complete"
       ]
@@ -59,15 +64,18 @@
     {
       "file": "system/fpp-monitor-agent.sh",
       "mustContain": [
-        "/home/fpp/media/config/fpp-monitor-agent.json",
-        "/opt/fpp-monitor-agent/fpp-monitor-agent"
+        "plugindata/${PLUGIN_REPO_NAME}/fpp-monitor-agent.json",
+        "${PLUGIN_DIR}/bin/fpp-monitor-agent",
+        "plugin-${PLUGIN_REPO_NAME}.log"
       ]
     },
     {
       "file": "system/fpp-monitor-agent.service",
       "mustContain": [
         "fpp-monitor-agent",
-        "/home/fpp/media/config/fpp-monitor-agent.json"
+        "__PLUGIN_DIR__/system/fpp-monitor-agent.sh",
+        "__CONFIG_PATH__",
+        "__LOG_FILE__"
       ]
     },
     {

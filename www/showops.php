@@ -2,16 +2,21 @@
 require_once "/opt/fpp/www/common.php";
 
 $mediaDir = isset($settings['mediaDirectory']) ? $settings['mediaDirectory'] : '/home/fpp/media';
-$configDir = isset($settings['configDirectory']) ? $settings['configDirectory'] : ($mediaDir . '/config');
-// Agent-managed JSON (Go agent contract). Not config/plugin.<repoName> — intentional.
-$configPath = $configDir . '/fpp-monitor-agent.json';
 $pluginDir = dirname(__DIR__);
+$pluginRepoName = 'fpp-plugin-showops-agent';
+$pluginDataDir = $mediaDir . '/plugindata/' . $pluginRepoName;
+$configPath = $pluginDataDir . '/fpp-monitor-agent.json';
+$legacyConfigPath = (isset($settings['configDirectory']) ? $settings['configDirectory'] : ($mediaDir . '/config')) . '/fpp-monitor-agent.json';
+if (!file_exists($configPath) && file_exists($legacyConfigPath)) {
+  $configPath = $legacyConfigPath;
+}
 $serviceName = 'fpp-monitor-agent.service';
 $fallbackScript = $pluginDir . '/system/fpp-monitor-agent.sh';
 $versionPaths = array(
-  '/opt/fpp-monitor-agent/VERSION',
   $pluginDir . '/bin/VERSION',
+  '/opt/fpp-monitor-agent/VERSION',
 );
+$pluginLogPath = plugin_log_path($mediaDir, $pluginRepoName);
 
 function h($value) {
   return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -135,23 +140,37 @@ function detect_arch() {
 function service_installed($serviceName, $fallbackScript, $pluginDir) {
   $systemdPath = '/etc/systemd/system/' . $serviceName;
   $systemdLibPath = '/lib/systemd/system/' . $serviceName;
-  $binSystem = '/opt/fpp-monitor-agent/fpp-monitor-agent';
   $binPlugin = $pluginDir . '/bin/fpp-monitor-agent';
+  $binLegacy = '/opt/fpp-monitor-agent/fpp-monitor-agent';
 
   return file_exists($systemdPath) ||
     file_exists($systemdLibPath) ||
     file_exists($fallbackScript) ||
-    file_exists($binSystem) ||
-    file_exists($binPlugin);
+    file_exists($binPlugin) ||
+    file_exists($binLegacy);
 }
 
-function tail_logs($serviceName, $lines) {
+function plugin_log_path($mediaDir, $pluginRepoName) {
+  $logDir = isset($GLOBALS['settings']['logDirectory'])
+    ? $GLOBALS['settings']['logDirectory']
+    : ($mediaDir . '/logs');
+  return $logDir . '/plugin-' . $pluginRepoName . '.log';
+}
+
+function tail_logs($serviceName, $lines, $pluginLogPath = '') {
+  if ($pluginLogPath !== '' && file_exists($pluginLogPath)) {
+    run_cmd('tail -n ' . intval($lines) . ' ' . escapeshellarg($pluginLogPath), $output, $code);
+    if ($code === 0) {
+      return implode("\n", $output);
+    }
+  }
+
   if (is_systemd()) {
     run_cmd('journalctl -u ' . escapeshellarg($serviceName) . ' -n ' . intval($lines) . ' --no-pager', $output, $code);
     if ($code === 0) {
       return implode("\n", $output);
     }
-    return 'Failed to read journal logs.';
+    return 'Failed to read plugin log or journal.';
   }
 
   $paths = array('/var/log/syslog', '/var/log/messages');
@@ -241,7 +260,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'restart') {
     restart_agent($serviceName, $fallbackScript, $messages, $errors);
   } elseif ($action === 'tail') {
-    $logs = tail_logs($serviceName, 50);
+    $logs = tail_logs($serviceName, 50, $pluginLogPath);
   }
 }
 
@@ -255,7 +274,7 @@ $deviceId = isset($config['device_id']) ? $config['device_id'] : '';
 $heartbeatTs = isset($config['last_heartbeat_ts']) ? $config['last_heartbeat_ts'] : '';
 $enrolled = $deviceId !== '';
 $running = ($status === 'active' || $status === 'running');
-$logs = tail_logs($serviceName, 50);
+$logs = tail_logs($serviceName, 50, $pluginLogPath);
 
 $pairingCode = isset($config['pairing_code']) ? $config['pairing_code'] : '';
 $pairingExpires = isset($config['pairing_expires_at']) ? $config['pairing_expires_at'] : '';
@@ -387,7 +406,7 @@ $pairingRequested = !empty($config['pairing_requested']);
         <button class="btn btn-outline-secondary" type="submit" name="action" value="tail">Refresh Logs</button>
       </form>
       <pre class="showops-pre border rounded p-3 bg-body text-body mb-2"><?php echo h($logs !== '' ? $logs : 'No log output available.'); ?></pre>
-      <div class="text-body-secondary small">Showing latest 50 lines from the agent service journal.</div>
+      <div class="text-body-secondary small">Showing latest 50 lines from the plugin log (FPP-rotated).</div>
     </div>
   </div>
 </div>
