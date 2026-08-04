@@ -44,11 +44,14 @@ download_file() {
   local status=""
   local attempt=1
   local max_attempts=6
+  # Bound hangs so FPP Plugin Manager / install hooks cannot stall forever.
+  local connect_timeout_sec=15
+  local max_time_sec=180
 
   if have_command curl; then
-    log "Copy/paste to debug download: curl -fSL -o \"$dest\" \"$url\""
+    log "Copy/paste to debug download: curl -fSL --connect-timeout ${connect_timeout_sec} --max-time ${max_time_sec} -o \"$dest\" \"$url\""
     while [[ "$attempt" -le "$max_attempts" ]]; do
-      status="$(curl -sSL -L -w "%{http_code}" -o "$dest" "$url" || true)"
+      status="$(curl -sSL -L --connect-timeout "$connect_timeout_sec" --max-time "$max_time_sec" -w "%{http_code}" -o "$dest" "$url" || true)"
       if [[ "$status" == "200" ]]; then
         return 0
       fi
@@ -64,9 +67,9 @@ download_file() {
     log "Download failed (HTTP $status): $url"
     return 1
   elif have_command wget; then
-    log "Copy/paste to debug download: wget -O \"$dest\" \"$url\""
+    log "Copy/paste to debug download: wget --timeout=${max_time_sec} -O \"$dest\" \"$url\""
     while [[ "$attempt" -le "$max_attempts" ]]; do
-      status="$(wget --server-response -O "$dest" "$url" 2>&1 | awk '/^  HTTP/{code=$2} END{print code}' || true)"
+      status="$(wget --server-response --timeout="$max_time_sec" --tries=1 -O "$dest" "$url" 2>&1 | awk '/^  HTTP/{code=$2} END{print code}' || true)"
       if [[ "$status" == "200" ]]; then
         return 0
       fi
