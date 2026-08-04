@@ -7,20 +7,18 @@ REPO_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 
 log_install_session_start "install"
 
-# Plugin lives wherever FPP cloned this repo (repoName = fpp-plugin-showops-agent).
+# Keep artifacts inside the plugin / FPP media tree (PLUGIN_GUIDELINES.md §5).
 PLUGIN_DIR="$REPO_ROOT"
-CONFIG_PATH="${MEDIADIR}/config/fpp-monitor-agent.json"
-INSTALL_DIR="/opt/fpp-monitor-agent"
-BIN_LINK="/usr/local/bin/fpp-monitor-agent"
+PLUGIN_REPO_NAME="${SHOWOPS_PLUGIN_REPO_NAME:-fpp-plugin-showops-agent}"
+PLUGINDATA_DIR="${MEDIADIR}/plugindata/${PLUGIN_REPO_NAME}"
+CONFIG_PATH="${PLUGINDATA_DIR}/fpp-monitor-agent.json"
+LEGACY_CONFIG_PATH="${MEDIADIR}/config/fpp-monitor-agent.json"
+INSTALL_DIR="$PLUGIN_DIR/bin"
+BIN_PATH="$INSTALL_DIR/fpp-monitor-agent"
 FALLBACK_SCRIPT="$PLUGIN_DIR/system/fpp-monitor-agent.sh"
 TMP_FALLBACK_DIR="${MEDIADIR}/tmp"
-
-if ! can_privileged; then
-  INSTALL_DIR="$PLUGIN_DIR/bin"
-  log "Not root and no passwordless sudo; using $INSTALL_DIR for binary install"
-fi
-
-BIN_PATH="$INSTALL_DIR/fpp-monitor-agent"
+LEGACY_OPT_DIR="/opt/fpp-monitor-agent"
+LEGACY_BIN_LINK="/usr/local/bin/fpp-monitor-agent"
 
 # Fallback version used only when the ShowOps manifest and GitHub API are both unreachable.
 # Update this whenever a new stable release ships.
@@ -213,35 +211,52 @@ else
     fi
 
     log "Installing bundle to $INSTALL_DIR"
-    run_privileged install -m 0755 "$extract_dir/fpp-monitor-agent" "$BIN_PATH"
+    ensure_dir "$INSTALL_DIR"
+    run_cmd install -m 0755 "$extract_dir/fpp-monitor-agent" "$BIN_PATH"
     if [[ -f "$extract_dir/cloudflared" ]]; then
-      run_privileged install -m 0755 "$extract_dir/cloudflared" "$INSTALL_DIR/cloudflared"
+      run_cmd install -m 0755 "$extract_dir/cloudflared" "$INSTALL_DIR/cloudflared"
     else
       log "cloudflared not found in bundle; remote sessions will not work until installed"
     fi
   else
     log "Installing binary to $BIN_PATH"
-    run_privileged install -m 0755 "$tmp_bin" "$BIN_PATH"
+    ensure_dir "$INSTALL_DIR"
+    run_cmd install -m 0755 "$tmp_bin" "$BIN_PATH"
     log "cloudflared not bundled in this release; remote sessions will not work until installed"
   fi
-  run_privileged sh -c "echo \"$RESOLVED_TAG\" > \"$INSTALL_DIR/VERSION\""
+  echo "$RESOLVED_TAG" > "$INSTALL_DIR/VERSION"
 
+  # Remove legacy /opt layout left by older plugin installs.
   if can_privileged; then
-    run_privileged ln -sf "$BIN_PATH" "$BIN_LINK"
+    run_privileged rm -f "$LEGACY_BIN_LINK" || true
+    run_privileged rm -rf "$LEGACY_OPT_DIR" || true
   else
-    log "Cannot write $BIN_LINK; skipping symlink"
+    run_cmd rm -f "$LEGACY_BIN_LINK" || true
+    run_cmd rm -rf "$LEGACY_OPT_DIR" || true
   fi
 
   rm -rf "$tmp_dir"
 fi
 
-# Remote ShowOps "Update Agent" runs as User=fpp. Keep the install tree and
-# legacy download dir writable so self-update can replace the binary.
-if ! is_dry_run && can_privileged && [[ -d "$INSTALL_DIR" ]]; then
-  DATA_DIR="/var/lib/fpp-monitor-agent/downloads"
-  run_privileged mkdir -p "$DATA_DIR"
-  run_privileged chown -R fpp:fpp /var/lib/fpp-monitor-agent || true
-  run_privileged chown -R fpp:fpp "$INSTALL_DIR" || true
+# Self-update runs as User=fpp; keep plugin bin + downloads writable.
+if ! is_dry_run && [[ -d "$INSTALL_DIR" ]]; then
+  DOWNLOADS_DIR="$INSTALL_DIR/downloads"
+  ensure_dir "$DOWNLOADS_DIR"
+  if can_privileged; then
+    run_privileged chown -R fpp:fpp "$INSTALL_DIR" || true
+  fi
+fi
+
+# Migrate legacy config into plugindata (FPP-preferred location).
+ensure_dir "$PLUGINDATA_DIR"
+if [[ ! -f "$CONFIG_PATH" && -f "$LEGACY_CONFIG_PATH" ]]; then
+  log "Migrating config from $LEGACY_CONFIG_PATH to $CONFIG_PATH"
+  if is_dry_run; then
+    log "DRY_RUN: would migrate legacy config"
+  else
+    run_cmd cp -a "$LEGACY_CONFIG_PATH" "$CONFIG_PATH"
+    run_cmd rm -f "$LEGACY_CONFIG_PATH" || true
+  fi
 fi
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
@@ -267,7 +282,7 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
   "heartbeat_interval_sec": 60,
   "command_poll_interval_sec": 30,
   "reboot_enabled": false,
-  "restart_fpp_command": "systemctl restart fpp"
+  "restart_fpp_command": ""
 }
 JSON
   fi
@@ -279,17 +294,44 @@ if is_dry_run; then
   log "DRY_RUN: would ensure $CONFIG_PATH is writable by fpp"
 else
   if can_privileged; then
-    run_privileged chown fpp:fpp "$CONFIG_PATH" || true
+    run_privileged chown -R fpp:fpp "$PLUGINDATA_DIR" || true
+    run_privileged chmod 700 "$PLUGINDATA_DIR" || true
     run_privileged chmod 600 "$CONFIG_PATH" || true
   else
+    run_cmd chmod 700 "$PLUGINDATA_DIR" || true
     run_cmd chmod 600 "$CONFIG_PATH" || true
   fi
 fi
 
+# Ensure wrapper is executable in the plugin tree (unit ExecStart points here).
+run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
+
+write_unit_file() {
+  local dest="$1"
+  local unit_src="$REPO_ROOT/system/fpp-monitor-agent.service"
+  if is_dry_run; then
+    log "DRY_RUN: would write systemd unit to $dest"
+    return 0
+  fi
+  sed \
+    -e "s|__PLUGIN_DIR__|${PLUGIN_DIR}|g" \
+    -e "s|__CONFIG_PATH__|${CONFIG_PATH}|g" \
+    -e "s|__BIN_PATH__|${BIN_PATH}|g" \
+    -e "s|__LOG_FILE__|${LOG_FILE}|g" \
+    "$unit_src" >"$dest"
+}
+
 if is_systemd; then
   log "Installing systemd service"
   if can_privileged; then
-    run_privileged install -m 0644 "$REPO_ROOT/system/fpp-monitor-agent.service" /etc/systemd/system/fpp-monitor-agent.service
+    unit_tmp="$(mktemp)"
+    write_unit_file "$unit_tmp"
+    if ! is_dry_run; then
+      run_privileged install -m 0644 "$unit_tmp" /etc/systemd/system/fpp-monitor-agent.service
+      rm -f "$unit_tmp"
+    else
+      rm -f "$unit_tmp"
+    fi
     run_privileged systemctl daemon-reload
     run_privileged systemctl enable fpp-monitor-agent.service
     restart_output=""
@@ -311,20 +353,14 @@ if is_systemd; then
         log "Systemd restart failed with exit code $restart_code"
       fi
       log "Falling back to runner"
-      run_cmd mkdir -p "$PLUGIN_DIR/system"
-      run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
       run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
     fi
   else
     log "Systemd present but cannot privilege-escalate; using fallback runner"
-    run_cmd mkdir -p "$PLUGIN_DIR/system"
-    run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
     run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
   fi
 else
   log "Systemd not detected; installing fallback runner"
-  run_cmd mkdir -p "$PLUGIN_DIR/system"
-  run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
   run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
   if have_command crontab; then
     log "Registering fallback runner at boot via crontab"
