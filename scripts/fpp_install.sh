@@ -176,11 +176,11 @@ else
   fi
 
   if [[ "$install_mode" == "tar" ]]; then
-    expected_sha="$(awk "/$asset_tar/ {print \$1}" "$tmp_checksums")"
+    expected_sha="$(awk -v name="$asset_tar" '$2 == name { print $1; exit }' "$tmp_checksums")"
     asset_name="$asset_tar"
     asset_path="$tmp_tar"
   else
-    expected_sha="$(awk "/$asset_bin/ {print \$1}" "$tmp_checksums")"
+    expected_sha="$(awk -v name="$asset_bin" '$2 == name { print $1; exit }' "$tmp_checksums")"
     asset_name="$asset_bin"
     asset_path="$tmp_bin"
   fi
