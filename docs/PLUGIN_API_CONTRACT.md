@@ -1,6 +1,6 @@
 # FPP ShowOps monitor plugin — integration contract
 
-**Version:** 1.3.0  
+**Version:** 1.4.0  
 **Slice:** #2 — follows monitor-agent plugin slice #1; scaling and deferral notes live in company issue **SHO-253**.  
 **Status:** Frozen interfaces below are covered by CI (`scripts/verify_plugin_contract.sh`).
 
@@ -47,24 +47,17 @@ The **authoritative field list** for operators is in the root [README](../README
 
 **Install / reinstall:** The installer writes the **full** default schema on first install and must **never** overwrite an existing file on reinstall.
 
-### Uninstall default (pairing reset)
+### Uninstall (full cleanup)
 
-When uninstall runs with **neither** `PURGE=1` **nor** `KEEP_CONFIG=1`, it clears enrollment and pairing keys by **merging** into the existing JSON object. Operator-tuned fields (`api_base_url`, `heartbeat_interval_sec`, `command_poll_interval_sec`, `restart_fpp_command`, `reboot_enabled`, tunnel fields, etc.) must survive so a reinstall does not silently revert cloud endpoints or intervals.
-
-Keys reset on that merge-clear path:
-
-- `enrollment_token`, `device_id`, `device_token`, `device_fingerprint`
-- `pairing_requested`, `pairing_request_id`, `pairing_code`, `pairing_expires_at`, `pairing_status`, `unpair_requested`
-
-`PURGE=1` deletes the config file. `KEEP_CONFIG=1` skips pairing clears entirely.
+Uninstall **deletes** `/home/fpp/media/config/fpp-monitor-agent.json`, the systemd unit, `/opt/fpp-monitor-agent`, `/var/lib/fpp-monitor-agent`, and related symlinks/crontab entries. Nothing plugin-owned should remain outside the plugin directory (FPP “clean up completely”). Reinstall creates a fresh default config.
 
 ### Install / uninstall session correlation
 
 Each `fpp_install.sh` and `fpp_uninstall.sh` invocation logs a line early in the run:
 
-`[fpp-monitor-agent] <install|uninstall> begin install_run_id=<id>`
+`[fpp-plugin-showops-agent] <install|uninstall> begin install_run_id=<id>`
 
-Environment variable **`FPP_MONITOR_INSTALL_RUN_ID`** is exported for the script lifetime (tests may preset it). Operators can grep `install_run_id` in `/home/fpp/media/logs/fpp-monitor-agent-install.log` when opening support tickets. Outbound HTTP correlation for the Go agent remains separate (see §4).
+Environment variable **`FPP_MONITOR_INSTALL_RUN_ID`** is exported for the script lifetime (tests may preset it). Operators can grep `install_run_id` in `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` when opening support tickets. Outbound HTTP correlation for the Go agent remains separate (see §4).
 
 ---
 
@@ -145,8 +138,7 @@ Applying the update needs nothing extra here — FPP's `upgrade_plugin` runs `sc
 
 ## 9. PHP plugin UI and config merges
 
-The UI reads the same config path and expects JSON objects as produced by the installer. Pairing actions must preserve operator-tuned fields (same merge discipline as uninstall).
-
+The UI reads the same config path and expects JSON objects as produced by the installer. Pairing/unpair actions update only the pairing-related keys and must not wipe unrelated operator fields in the live config. Uninstall removes the config file entirely.
 ---
 
 ## 10. CI contract verification

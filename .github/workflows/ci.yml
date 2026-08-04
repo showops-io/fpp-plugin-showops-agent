@@ -62,22 +62,10 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Smoke test — dry-run uninstall (default)
+      - name: Smoke test — dry-run uninstall (full cleanup)
         run: DRY_RUN=1 bash scripts/fpp_uninstall.sh
         env:
           DRY_RUN: "1"
-
-      - name: Smoke test — dry-run uninstall (KEEP_CONFIG)
-        run: DRY_RUN=1 KEEP_CONFIG=1 bash scripts/fpp_uninstall.sh
-        env:
-          DRY_RUN: "1"
-          KEEP_CONFIG: "1"
-
-      - name: Smoke test — dry-run uninstall (PURGE)
-        run: DRY_RUN=1 PURGE=1 bash scripts/fpp_uninstall.sh
-        env:
-          DRY_RUN: "1"
-          PURGE: "1"
 
   update-check:
     name: Update Check Hook
