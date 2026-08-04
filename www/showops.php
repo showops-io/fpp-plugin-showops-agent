@@ -503,7 +503,8 @@ function http_json_post($url, $payload, &$error, $timeoutSec = 20) {
     ));
     $raw = @file_get_contents($url, false, $ctx);
     $status = '0';
-    if (isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
+    if (isset($http_response_header) && is_array($http_response_header) && isset($http_response_header[0])
+      && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
       $status = $m[1];
     }
     if ($raw === false) {
