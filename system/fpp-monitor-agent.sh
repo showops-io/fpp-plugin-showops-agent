@@ -25,6 +25,9 @@ if [[ ! -x "$BIN_PATH" ]]; then
   exit 1
 fi
 
+export FPP_MONITOR_AGENT_CONFIG="$CONFIG_PATH"
+export SHOWOPS_CONFIG_PATH="$CONFIG_PATH"
+
 # Append to the FPP-managed plugin log (PLUGIN_GUIDELINES.md §1).
 # Do not abort if the preferred log is not writable (common for web-user starts).
 set +e
