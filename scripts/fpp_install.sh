@@ -21,15 +21,17 @@ fi
 
 BIN_PATH="$INSTALL_DIR/fpp-monitor-agent"
 
-# Fallback version used only when the manifest and GitHub API are both unreachable.
+# Fallback version used only when the ShowOps manifest and GitHub API are both unreachable.
 # Update this whenever a new stable release ships.
-DEFAULT_RELEASE_VERSION="v0.1.27"
+DEFAULT_RELEASE_VERSION="v1.2.29"
 RELEASE_VERSION="${RELEASE_VERSION:-}"
 AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-showops-io}"
 AGENT_REPO_NAME="${AGENT_REPO_NAME:-fpp-agent-monitor}"
+SHOWOPS_API_BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
 
 resolve_latest_tag() {
-  local manifest_url="https://raw.githubusercontent.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/main/latest.json"
+  local manifest_url="${SHOWOPS_API_BASE}/v1/agent/releases/latest"
+  local github_manifest_url="https://raw.githubusercontent.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/main/latest.json"
   local api_url="https://api.github.com/repos/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/releases/latest"
   local body=""
   local tmp=""
@@ -43,9 +45,24 @@ resolve_latest_tag() {
       echo "$version"
       return 0
     fi
+  else
+    rm -f "$tmp"
+    log "Failed to resolve latest tag from $manifest_url" >&2
+  fi
+
+  # Dual-publish fallback (remove after ShowOps channel is sole source of truth).
+  tmp="$(mktemp)"
+  if download_file "$github_manifest_url" "$tmp" 1>&2; then
+    body="$(cat "$tmp")"
+    rm -f "$tmp"
+    version="$(echo "$body" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+    if [[ -n "$version" ]]; then
+      echo "$version"
+      return 0
+    fi
   fi
   rm -f "$tmp"
-  log "Failed to resolve latest tag from $manifest_url" >&2
+  log "Failed to resolve latest tag from $github_manifest_url" >&2
 
   tmp="$(mktemp)"
   if ! download_file "$api_url" "$tmp" 1>&2; then
@@ -92,7 +109,8 @@ if [[ -z "$RESOLVED_TAG" ]]; then
   fi
 fi
 
-RELEASE_BASE="${RELEASE_BASE:-https://github.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/releases/download/${RESOLVED_TAG}}"
+RELEASE_BASE="${RELEASE_BASE:-${SHOWOPS_API_BASE}/v1/agent/releases/${RESOLVED_TAG}}"
+GITHUB_RELEASE_BASE="https://github.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/releases/download/${RESOLVED_TAG}"
 
 platform_arch="$($ROOT_DIR/detect_platform.sh)"
 asset_tar="fpp-monitor-agent-linux-${platform_arch}.tar.gz"
@@ -127,11 +145,22 @@ if is_dry_run; then
   log "DRY_RUN: would write version file to $INSTALL_DIR/VERSION"
   rm -rf "$tmp_dir"
 else
-  if download_file "$RELEASE_BASE/$asset_tar" "$tmp_tar"; then
+  download_release_asset() {
+    local name="$1"
+    local dest="$2"
+    if download_file "$RELEASE_BASE/$name" "$dest"; then
+      return 0
+    fi
+    # Dual-publish fallback while the ShowOps channel is still being seeded.
+    log "ShowOps download failed for $name; trying GitHub Releases"
+    download_file "$GITHUB_RELEASE_BASE/$name" "$dest"
+  }
+
+  if download_release_asset "$asset_tar" "$tmp_tar"; then
     install_mode="tar"
   else
     log "Tarball not found; falling back to binary download"
-    if download_file "$RELEASE_BASE/$asset_bin" "$tmp_bin"; then
+    if download_release_asset "$asset_bin" "$tmp_bin"; then
       install_mode="bin"
     else
       log "Failed to download $asset_tar or $asset_bin"
@@ -139,7 +168,7 @@ else
       exit 1
     fi
   fi
-  if ! download_file "$RELEASE_BASE/$checksums_name" "$tmp_checksums"; then
+  if ! download_release_asset "$checksums_name" "$tmp_checksums"; then
     log "Failed to download $checksums_name"
     rm -rf "$tmp_dir"
     exit 1

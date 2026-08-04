@@ -2,11 +2,16 @@
   "repoName": "showops-agent",
   "name": "ShowOps Agent",
   "author": "ShowOps",
-  "description": "Outbound-only ShowOps monitoring agent for FPP.",
+  "description": "Outbound-only ShowOps monitoring agent for FPP (Raspberry Pi and BeagleBone).",
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
-  "instructions": "Install: set FPP UI Level to Advanced/Developer if needed, then paste https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json into Plugin Manager. Supports FPP 7+. Configure via Plugins → ShowOps Configuration.",
+  "instructions": "Install: set FPP UI Level to Advanced/Developer if needed, then paste https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json into Plugin Manager. Supports FPP 7+ on Raspberry Pi and BeagleBone (ARM). Configure via Plugins → ShowOps Configuration.",
+  "platforms": [
+    "Raspberry Pi",
+    "BeagleBone Black",
+    "BeagleBone 64"
+  ],
   "versions": [
     {
       "minFPPVersion": "7.0",

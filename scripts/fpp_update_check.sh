@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 #
-# Reports whether a newer ShowOps agent is available, for FPP's Plugins page.
+# Reports whether a newer ShowOps agent binary is available.
 #
-# FPP's PluginHasUpdates() first looks for unpulled commits in the plugin
-# directory and only calls this script when it finds none -- which is our normal
-# state, because the plugin code lives in this repo while the agent binary it
-# installs ships as a release asset in fpp-agent-monitor. Without this hook FPP
-# reports the plugin as current no matter how far behind the installed binary is.
+# FPP 10 only: PluginHasUpdates() invokes scripts/fpp_update_check.sh when the
+# plugin git tree has no unpulled commits. On FPP 7/8/9, PluginHasUpdates() is
+# git-log-only and never runs this script — the FPP Plugins-page badge will not
+# light for agent-only releases there. ShowOps in-app "Update Agent" works on
+# all supported FPP versions.
 #
-# Contract (FPP www/api/controllers/plugin.php):
+# Contract (FPP www/api/controllers/plugin.php, FPP 10+):
 #   exit 0 and print "1" as the final stdout line to report an update available.
 #   Anything else counts as "no update", so failures must still print "0".
 #
-# Applying the update needs no extra work here: FPP's upgrade_plugin runs
-# scripts/fpp_install.sh after the (no-op) git pull, and that installs the
-# newest release without touching an existing config.
+# Applying the update: FPP's upgrade_plugin runs scripts/fpp_install.sh after
+# git pull, which installs the newest agent release without touching config.
 
 set -uo pipefail
 
 PLUGIN_DIR="${SHOWOPS_PLUGIN_DIR:-/home/fpp/media/plugins/showops-agent}"
 AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-showops-io}"
 AGENT_REPO_NAME="${AGENT_REPO_NAME:-fpp-agent-monitor}"
+SHOWOPS_API_BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
 # FPP runs this on every Plugins page render, so answer from cache rather than
 # reaching across the WAN each time.
 CACHE_FILE="${SHOWOPS_UPDATE_CHECK_CACHE:-/home/fpp/media/tmp/showops-agent-update-check}"
@@ -70,8 +70,14 @@ json_string_field() {
 resolve_latest_version() {
   local body version
 
-  # The manifest is a static file, so a device cannot be rate limited out of
-  # update discovery the way the GitHub API does under load.
+  body="$(fetch_url "${SHOWOPS_API_BASE}/v1/agent/releases/latest")" || body=""
+  version="$(json_string_field version "$body")"
+  if [[ -n "$version" ]]; then
+    printf '%s\n' "$version"
+    return 0
+  fi
+
+  # Dual-publish fallback (remove after ShowOps channel is sole source of truth).
   body="$(fetch_url "https://raw.githubusercontent.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/main/latest.json")" || body=""
   version="$(json_string_field version "$body")"
   if [[ -n "$version" ]]; then
