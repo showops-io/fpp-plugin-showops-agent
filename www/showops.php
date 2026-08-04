@@ -363,6 +363,25 @@ function reset_pairing_config($configPath) {
   return write_config_atomic($configPath, $reset, $err);
 }
 
+/** Wipe local enrollment so the UI cannot show a cloud device that no longer exists. */
+function clear_local_enrollment($configPath) {
+  $reset = read_config($configPath);
+  $reset['api_base_url'] = 'https://api.showops.io';
+  $reset['device_id'] = '';
+  $reset['device_token'] = '';
+  $reset['enrollment_token'] = '';
+  $reset['last_heartbeat_ts'] = '';
+  $reset['pairing_requested'] = false;
+  $reset['pairing_request_id'] = '';
+  $reset['pairing_code'] = '';
+  $reset['pairing_expires_at'] = '';
+  $reset['pairing_status'] = '';
+  $reset['pairing_device_nonce'] = '';
+  $reset['unpair_requested'] = false;
+  $err = '';
+  return write_config_atomic($configPath, $reset, $err);
+}
+
 function pairing_code_usable($code, $expiresAt) {
   if ($code === '') {
     return false;
@@ -580,13 +599,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $current = read_config($configPath);
       $updated = $current;
       $updated['api_base_url'] = 'https://api.showops.io';
+      $updated['device_id'] = '';
+      $updated['device_token'] = '';
+      $updated['enrollment_token'] = '';
+      $updated['last_heartbeat_ts'] = '';
       $updated['pairing_requested'] = true;
       $updated['pairing_request_id'] = '';
       $updated['pairing_code'] = '';
       $updated['pairing_expires_at'] = '';
       $updated['pairing_status'] = '';
+      $updated['pairing_device_nonce'] = '';
       $updated['unpair_requested'] = false;
-      $updated['enrollment_token'] = '';
 
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
@@ -604,30 +627,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
     }
   } elseif ($action === 'unpair') {
-    if (empty($errors)) {
-      $current = read_config($configPath);
-      $updated = $current;
-      $updated['api_base_url'] = isset($updated['api_base_url']) && $updated['api_base_url'] !== ''
-        ? $updated['api_base_url']
-        : 'https://api.showops.io';
-      $updated['pairing_requested'] = false;
-      $updated['unpair_requested'] = true;
-      $updated['pairing_status'] = 'UNPAIRING';
-
-      $error = '';
-      if (write_config_atomic($configPath, $updated, $error)) {
-        $messages[] = 'Unpair requested. Restarting agent.';
-        restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
-      } else {
-        $errors[] = $error;
-      }
-    }
+    // Always clear local credentials first. Cloud device may already be gone
+    // (reinstall/replace), and the agent may not be installed to finish unpair.
+    clear_local_enrollment($configPath);
+    run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
+    rotate_plugin_log($pluginLogPath);
+    $messages[] = 'Local pairing cleared. Install the agent, then generate a new code.';
   } elseif ($action === 'restart') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
     $errors = array();
     // Clean slate: leftover plugindata/logs from uninstall must not look like pairing.
-    reset_pairing_config($configPath);
+    clear_local_enrollment($configPath);
     rotate_plugin_log($pluginLogPath);
 
     $hadBinary = agent_binary_path($pluginDir) !== '';
@@ -653,21 +664,34 @@ $status = service_status($serviceName);
 $installed = service_installed($serviceName, $fallbackScript, $pluginDir);
 $agentVersion = detect_agent_version($versionPaths);
 $arch = detect_arch();
-$deviceId = isset($config['device_id']) ? $config['device_id'] : '';
+$deviceId = isset($config['device_id']) ? trim((string)$config['device_id']) : '';
 $heartbeatTs = isset($config['last_heartbeat_ts']) ? $config['last_heartbeat_ts'] : '';
-$enrolled = $deviceId !== '';
+$hasLocalDevice = $deviceId !== '';
 $running = agent_is_running() || $status === 'active' || $status === 'running';
+
+// Ghost "Paired" after plugin reinstall / cloud replace: local device_id with no binary.
+if ($hasLocalDevice && !$installed) {
+  clear_local_enrollment($configPath);
+  rotate_plugin_log($pluginLogPath);
+  $config = read_config($configPath);
+  $deviceId = '';
+  $heartbeatTs = '';
+  $hasLocalDevice = false;
+  if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $messages[] = 'Previous pairing was stale (device missing in ShowOps). Start fresh below.';
+  }
+}
+
+$enrolled = $hasLocalDevice && $installed;
 
 $pairingCode = isset($config['pairing_code']) ? $config['pairing_code'] : '';
 $pairingExpires = isset($config['pairing_expires_at']) ? $config['pairing_expires_at'] : '';
 $pairingStatus = isset($config['pairing_status']) ? $config['pairing_status'] : '';
 $pairingRequestId = isset($config['pairing_request_id']) ? $config['pairing_request_id'] : '';
 
-// Ghost state after plugin reinstall — wipe it for real, don't just hide it.
 if (!$installed && !$enrolled) {
   if ($pairingCode !== '' || $pairingRequestId !== '' || !empty($config['pairing_requested'])) {
     reset_pairing_config($configPath);
-    rotate_plugin_log($pluginLogPath);
     $config = read_config($configPath);
   }
   $pairingCode = '';
@@ -677,7 +701,6 @@ if (!$installed && !$enrolled) {
 }
 
 if ($pairingCode !== '' && !pairing_code_usable($pairingCode, $pairingExpires) && !$enrolled) {
-  // Expired code is useless — clear so user can generate a fresh one.
   reset_pairing_config($configPath);
   $config = read_config($configPath);
   $pairingCode = '';
@@ -701,7 +724,6 @@ $alreadyPairedCloud = $installed && (
   strpos($logs, 'device_already_paired') !== false
 );
 
-// Single primary step for the operator.
 if ($enrolled) {
   $step = 'paired';
 } elseif (!$installed) {
