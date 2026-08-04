@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.5.1",
+  "contractVersion": "1.5.2",
   "description": "Machine-readable checks for docs/PLUGIN_API_CONTRACT.md. CI fails if plugin paths or UI POST actions drift without updating the contract.",
   "frozenPaths": {
     "userConfigFile": "/home/fpp/media/plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json",
@@ -11,14 +11,20 @@
     "legacyOptAgentBinary": "/opt/fpp-monitor-agent/fpp-monitor-agent",
     "pluginLogFile": "/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log"
   },
-  "pluginUiPostActions": ["pair", "unpair", "restart", "tail", "install"],
+  "pluginUiPostActions": [
+    "pair",
+    "unpair",
+    "restart",
+    "tail",
+    "install"
+  ],
   "fileAssertions": [
     {
-      "file": "www/showops.php",
+      "file": "showops.php",
       "mustContain": [
         "plugindata/",
         "fpp-monitor-agent.json",
-        "dirname(__DIR__)",
+        "__DIR__",
         "fpp-monitor-agent.service",
         "action === 'pair'",
         "action === 'unpair'",
@@ -81,7 +87,10 @@
     },
     {
       "file": "menu.inc",
-      "mustContain": ["showops.php", "'type' => 'content'"]
+      "mustContain": [
+        "showops.php",
+        "'type' => 'content'"
+      ]
     },
     {
       "file": "pluginInfo.json",

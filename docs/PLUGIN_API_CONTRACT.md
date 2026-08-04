@@ -6,7 +6,7 @@
 
 This document is the **versioned boundary** between:
 
-- This repo (FPP plugin: install shell, systemd glue, `www/showops.php` UI), and
+- This repo (FPP plugin: install shell, systemd glue, `showops.php` UI), and
 - The Go agent binary ([fpp-agent-monitor](https://github.com/showops-io/fpp-agent-monitor)), which reads/writes the shared JSON config and calls ShowOps HTTP APIs.
 
 Breaking changes to paths, config semantics, or plugin UI actions require **bumping `contractVersion`** in `docs/contract-fingerprints.json` and updating this file.
@@ -62,7 +62,7 @@ Environment variable **`FPP_MONITOR_INSTALL_RUN_ID`** is exported for the script
 
 ---
 
-## 3. FPP plugin web surface (`www/showops.php`)
+## 3. FPP plugin web surface (`showops.php`)
 
 **Entry:** FPP loads the page via `menu.inc` → `showops.php` (path under plugin root).
 
@@ -76,7 +76,7 @@ Environment variable **`FPP_MONITOR_INSTALL_RUN_ID`** is exported for the script
 | `install` | Download agent binary into plugin `bin/` from ShowOps release channel |
 | `tail` | Refresh log snippet in UI |
 
-CI asserts these five actions exist in `www/showops.php`. New actions require a contract bump and a fingerprint update.
+CI asserts these five actions exist in `showops.php`. New actions require a contract bump and a fingerprint update.
 
 ---
 

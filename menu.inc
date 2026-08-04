@@ -13,7 +13,7 @@ $menuEntries = Array(
   Array(
     'text' => 'ShowOps Configuration',
     'type' => 'content',
-    'page' => 'www/showops.php',
+    'page' => 'showops.php',
     'wrap' => 1
   )
 );
