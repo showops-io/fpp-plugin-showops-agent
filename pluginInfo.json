@@ -2,7 +2,7 @@
   "repoName": "fpp-plugin-showops-agent",
   "name": "ShowOps Agent",
   "author": "ShowOps",
-  "description": "Outbound-only ShowOps monitoring agent for FPP (Raspberry Pi and BeagleBone).",
+  "description": "Outbound-only ShowOps monitoring agent for FPP (Raspberry Pi, BeagleBone, Armbian, and Debian ARM boards).",
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
@@ -18,7 +18,14 @@
       "branch": "main",
       "sha": "",
       "allowUpdates": 1,
-      "platforms": ["Raspberry Pi", "BeagleBone Black", "BeagleBone 64"]
+      "platforms": [
+        "Raspberry Pi",
+        "BeagleBone Black",
+        "BeagleBone 64",
+        "Armbian",
+        "Debian",
+        "Ubuntu"
+      ]
     },
     {
       "minFPPVersion": "8.0",
@@ -26,7 +33,14 @@
       "branch": "main",
       "sha": "",
       "allowUpdates": 1,
-      "platforms": ["Raspberry Pi", "BeagleBone Black", "BeagleBone 64"]
+      "platforms": [
+        "Raspberry Pi",
+        "BeagleBone Black",
+        "BeagleBone 64",
+        "Armbian",
+        "Debian",
+        "Ubuntu"
+      ]
     },
     {
       "minFPPVersion": "9.0",
@@ -34,7 +48,14 @@
       "branch": "main",
       "sha": "",
       "allowUpdates": 1,
-      "platforms": ["Raspberry Pi", "BeagleBone Black", "BeagleBone 64"]
+      "platforms": [
+        "Raspberry Pi",
+        "BeagleBone Black",
+        "BeagleBone 64",
+        "Armbian",
+        "Debian",
+        "Ubuntu"
+      ]
     },
     {
       "minFPPVersion": "10.0",
@@ -42,7 +63,14 @@
       "branch": "main",
       "sha": "",
       "allowUpdates": 1,
-      "platforms": ["Raspberry Pi", "BeagleBone Black", "BeagleBone 64"]
+      "platforms": [
+        "Raspberry Pi",
+        "BeagleBone Black",
+        "BeagleBone 64",
+        "Armbian",
+        "Debian",
+        "Ubuntu"
+      ]
     }
   ]
 }
