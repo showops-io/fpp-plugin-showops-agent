@@ -388,30 +388,41 @@ function start_fallback_runner($fallbackScript, $pluginDir, $configPath, $plugin
   $launched = false;
   foreach ($startCmds as $cmd) {
     run_cmd($cmd . ' echo ok', $output, $code);
-    usleep(800000);
-    if (agent_is_running()) {
-      $launched = true;
-      break;
+    // Give nohup a moment; Armbian/FPP web PHP can be slow to observe the child.
+    for ($i = 0; $i < 5; $i++) {
+      usleep(400000);
+      if (agent_is_running()) {
+        $launched = true;
+        break 2;
+      }
     }
   }
 
   if (!$launched) {
-    run_cmd(
-      'timeout 4s ' . escapeshellarg($bin) . ' --config ' . escapeshellarg($configPath) . ' 2>&1 || true',
-      $probeOut,
-      $probeCode
-    );
-    $probe = trim(implode("\n", array_slice($probeOut, -12)));
+    // Never run the agent with --config as a probe — that pairs against the API,
+    // burns rate limits, and then timeout kills the process.
+    run_cmd(escapeshellarg($bin) . ' --version 2>&1', $probeOut, $probeCode);
+    $probe = trim(implode("\n", array_slice($probeOut, -5)));
     $logTail = '';
     if ($logFile !== '' && file_exists($logFile)) {
-      run_cmd('tail -n 20 ' . escapeshellarg($logFile), $logOut, $logCode);
+      run_cmd('tail -n 8 ' . escapeshellarg($logFile), $logOut, $logCode);
       if ($logCode === 0) {
         $logTail = trim(implode("\n", $logOut));
       }
     }
-    $errors[] = 'Agent binary installed but failed to stay running.' .
-      ($probe !== '' ? (' Detail: ' . substr($probe, 0, 400)) : '') .
-      ($logTail !== '' ? (' Log: ' . substr($logTail, 0, 400)) : '');
+
+    if (strpos($logTail, 'http_status_429') !== false || strpos($logTail, 'rate_limited') !== false) {
+      $errors[] = 'Agent is installed, but pairing is rate-limited from earlier attempts. Wait a minute, then click Generate Pairing Code once (do not click Install again).';
+      return false;
+    }
+    if (strpos($logTail, 'http_status_409') !== false || strpos($logTail, 'device_already_paired') !== false) {
+      $errors[] = 'Agent is installed, but this FPP is already paired in ShowOps. Remove it under Devices, then Generate Pairing Code once.';
+      return false;
+    }
+
+    $errors[] = 'Agent binary is installed but did not stay running.' .
+      ($probe !== '' ? (' Version check: ' . substr($probe, 0, 120)) : '') .
+      ' Try Restart Agent. If it still fails, check plugin logs.';
     return false;
   }
 
@@ -579,11 +590,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
     $errors = array();
-    if (agent_binary_path($pluginDir) !== '') {
-      $messages[] = 'Agent is already installed.';
-      restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
-    } elseif (try_install_agent($pluginDir, $messages, $errors)) {
-      restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
+    $hadBinary = agent_binary_path($pluginDir) !== '';
+    if ($hadBinary) {
+      $messages[] = 'Agent is already installed. Starting it…';
+    }
+    if ($hadBinary || try_install_agent($pluginDir, $messages, $errors)) {
+      // Install success is the binary on disk. Start is best-effort — do not
+      // bury a good install under pairing rate-limit log spam.
+      $startErrors = array();
+      $started = restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $startErrors);
+      if (!$started) {
+        foreach ($startErrors as $se) {
+          $errors[] = $se;
+        }
+        if ($hadBinary || agent_binary_path($pluginDir) !== '') {
+          $messages[] = 'Install is complete. Next step: Generate Pairing Code (not Install again).';
+        }
+      }
     }
   } elseif ($action === 'tail') {
     $logs = tail_logs($serviceName, 50, $pluginLogPath);
