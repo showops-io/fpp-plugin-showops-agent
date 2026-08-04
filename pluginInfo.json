@@ -7,14 +7,17 @@
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
   "instructions": "Install: set FPP UI Level to Advanced/Developer if needed, then paste https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json into Plugin Manager. Supports FPP 7+ on Raspberry Pi and BeagleBone (ARM). Configure via Plugins → ShowOps Configuration.",
-  "platforms": [
-    "Raspberry Pi",
-    "BeagleBone Black",
-    "BeagleBone 64"
-  ],
+  "allowUpdates": 1,
   "versions": [
     {
       "minFPPVersion": "7.0",
+      "maxFPPVersion": "7.99",
+      "branch": "main",
+      "sha": "",
+      "allowUpdates": 1
+    },
+    {
+      "minFPPVersion": "8.0",
       "maxFPPVersion": "8.99",
       "branch": "main",
       "sha": "",
@@ -22,7 +25,14 @@
     },
     {
       "minFPPVersion": "9.0",
-      "maxFPPVersion": "99.0",
+      "maxFPPVersion": "9.99",
+      "branch": "main",
+      "sha": "",
+      "allowUpdates": 1
+    },
+    {
+      "minFPPVersion": "10.0",
+      "maxFPPVersion": "0",
       "branch": "main",
       "sha": "",
       "allowUpdates": 1
