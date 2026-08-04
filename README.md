@@ -41,9 +41,9 @@ journalctl -u fpp-monitor-agent.service -n 100 --no-pager
 
 ```bash
 bash /home/fpp/media/plugins/fpp-plugin-showops-agent/scripts/fpp_uninstall.sh
-# KEEP_CONFIG=1 to preserve pairing/config
 ```
 
+Removes the agent binary, systemd unit, config (`fpp-monitor-agent.json`), and related paths. Reinstall creates a fresh config.
 ## Engineers
 
 - Agent binary repo: [fpp-agent-monitor](https://github.com/showops-io/fpp-agent-monitor)
