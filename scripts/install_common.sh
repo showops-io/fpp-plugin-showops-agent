@@ -4,11 +4,14 @@ set -euo pipefail
 # Resolve FPP log directory the supported way (§1). Fall back for dry-run off-box.
 : "${FPPDIR:=/opt/fpp}"
 if [[ -f "${FPPDIR}/scripts/common" ]]; then
-  # Avoid polluting caller shell options if common is noisy.
-  set +e
+  # FPP's scripts/common expands unset vars (e.g. LD_LIBRARY_PATH). With our
+  # `set -u`, that aborts the whole install before any log line is written —
+  # FPP Plugin Manager then only shows "Could not properly install plugin".
+  # Disable -e/-u only while sourcing; restore nounset + errexit after.
+  set +eu
   # shellcheck disable=SC1090,SC1091
-  . "${FPPDIR}/scripts/common" >/dev/null 2>&1
-  set -e
+  . "${FPPDIR}/scripts/common" >/dev/null 2>&1 || true
+  set -euo pipefail
 fi
 : "${MEDIADIR:=/home/fpp/media}"
 : "${LOGDIR:=${MEDIADIR}/logs}"
