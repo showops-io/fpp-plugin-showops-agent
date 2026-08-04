@@ -315,7 +315,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
         $messages[] = 'Pairing request created. Restarting agent to generate a code.';
-        restart_agent($serviceName, $fallbackScript, $messages, $errors);
+        restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
       } else {
         $errors[] = $error;
       }
@@ -334,13 +334,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
         $messages[] = 'Unpair requested. Restarting agent.';
-        restart_agent($serviceName, $fallbackScript, $messages, $errors);
+        restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
       } else {
         $errors[] = $error;
       }
     }
   } elseif ($action === 'restart') {
-    restart_agent($serviceName, $fallbackScript, $messages, $errors);
+    restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
   } elseif ($action === 'tail') {
     $logs = tail_logs($serviceName, 50, $pluginLogPath);
   }
