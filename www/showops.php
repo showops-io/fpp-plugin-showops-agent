@@ -3,6 +3,7 @@ require_once "/opt/fpp/www/common.php";
 
 $mediaDir = isset($settings['mediaDirectory']) ? $settings['mediaDirectory'] : '/home/fpp/media';
 $pluginDir = dirname(__DIR__);
+$GLOBALS['pluginDir'] = $pluginDir;
 $pluginRepoName = 'fpp-plugin-showops-agent';
 $pluginDataDir = $mediaDir . '/plugindata/' . $pluginRepoName;
 $configPath = $pluginDataDir . '/fpp-monitor-agent.json';
@@ -80,6 +81,18 @@ function is_systemd() {
   return is_dir('/run/systemd/system') && trim((string)shell_exec('command -v systemctl 2>/dev/null')) !== '';
 }
 
+function agent_binary_path($pluginDir) {
+  $binPlugin = $pluginDir . '/bin/fpp-monitor-agent';
+  if (is_executable($binPlugin) || file_exists($binPlugin)) {
+    return $binPlugin;
+  }
+  $binLegacy = '/opt/fpp-monitor-agent/fpp-monitor-agent';
+  if (is_executable($binLegacy) || file_exists($binLegacy)) {
+    return $binLegacy;
+  }
+  return '';
+}
+
 function service_status($serviceName) {
   if (is_systemd() && systemd_unit_path($serviceName) !== '') {
     run_cmd('systemctl is-active ' . escapeshellarg($serviceName), $output, $code);
@@ -91,7 +104,8 @@ function service_status($serviceName) {
     }
   }
 
-  run_cmd('pgrep -f fpp-monitor-agent', $output, $code);
+  // Exact process name — do not match fpp-monitor-agent.sh.
+  run_cmd('pgrep -x fpp-monitor-agent', $output, $code);
   return $code === 0 ? 'running' : 'stopped';
 }
 
@@ -103,7 +117,7 @@ function last_log_line($pluginLogPath, $serviceName) {
     }
   }
 
-  if (is_systemd()) {
+  if (is_systemd() && systemd_unit_path($serviceName) !== '') {
     run_cmd('journalctl -u ' . escapeshellarg($serviceName) . ' -n 1 --no-pager --output=short-iso', $output, $code);
     if ($code === 0 && isset($output[0])) {
       return trim($output[0]);
@@ -149,14 +163,35 @@ function systemd_unit_path($serviceName) {
 }
 
 function service_installed($serviceName, $fallbackScript, $pluginDir) {
-  $binPlugin = $pluginDir . '/bin/fpp-monitor-agent';
-  $binLegacy = '/opt/fpp-monitor-agent/fpp-monitor-agent';
+  return agent_binary_path($pluginDir) !== '';
+}
 
-  // Installed means the agent binary is present (unit may still be missing on
-  // hosts where fpp_install.sh could not write /etc/systemd).
-  return file_exists($binPlugin) ||
-    file_exists($binLegacy) ||
-    systemd_unit_path($serviceName) !== '';
+function install_script_path($pluginDir) {
+  return $pluginDir . '/scripts/fpp_install.sh';
+}
+
+function try_install_agent($pluginDir, &$messages, &$errors) {
+  if (agent_binary_path($pluginDir) !== '') {
+    return true;
+  }
+
+  $script = install_script_path($pluginDir);
+  if (!file_exists($script)) {
+    $errors[] = 'Install script missing at ' . $script . '. Reinstall the ShowOps plugin from Plugin Manager.';
+    return false;
+  }
+
+  // FPP Plugin Manager normally runs this as root; web UI may have passwordless sudo.
+  run_cmd('sudo -n bash ' . escapeshellarg($script) . ' 2>&1', $output, $code);
+  if ($code === 0 && agent_binary_path($pluginDir) !== '') {
+    $messages[] = 'Agent binary installed.';
+    return true;
+  }
+
+  $detail = trim(implode("\n", array_slice($output, -8)));
+  $errors[] = 'Agent binary is not installed yet. SSH into the FPP and run: sudo bash ' . $script .
+    ($detail !== '' ? (' — last install output: ' . $detail) : '');
+  return false;
 }
 
 function plugin_log_path($mediaDir, $pluginRepoName) {
@@ -174,7 +209,7 @@ function tail_logs($serviceName, $lines, $pluginLogPath = '') {
     }
   }
 
-  if (is_systemd()) {
+  if (is_systemd() && systemd_unit_path($serviceName) !== '') {
     run_cmd('journalctl -u ' . escapeshellarg($serviceName) . ' -n ' . intval($lines) . ' --no-pager', $output, $code);
     if ($code === 0) {
       return implode("\n", $output);
@@ -182,26 +217,23 @@ function tail_logs($serviceName, $lines, $pluginLogPath = '') {
     return 'Failed to read plugin log or journal.';
   }
 
-  $paths = array('/var/log/syslog', '/var/log/messages');
-  foreach ($paths as $path) {
-    if (file_exists($path)) {
-      run_cmd('tail -n ' . intval($lines) . ' ' . escapeshellarg($path), $output, $code);
-      if ($code === 0) {
-        return implode("\n", $output);
-      }
-    }
-  }
-  return 'No log source found.';
+  return 'No plugin log yet. If the agent is not installed, run: sudo bash ' .
+    (isset($GLOBALS['pluginDir']) ? install_script_path($GLOBALS['pluginDir']) : 'scripts/fpp_install.sh');
 }
 
-function start_fallback_runner($fallbackScript, &$messages, &$errors, $reason = '') {
-  if (!is_executable($fallbackScript) && !file_exists($fallbackScript)) {
+function start_fallback_runner($fallbackScript, $pluginDir, &$messages, &$errors, $reason = '') {
+  if (agent_binary_path($pluginDir) === '') {
+    $errors[] = 'Cannot start agent: binary missing. Run: sudo bash ' . install_script_path($pluginDir);
+    return false;
+  }
+
+  if (!file_exists($fallbackScript)) {
     $errors[] = 'Agent runner missing at ' . $fallbackScript . '. Reinstall the plugin.';
     return false;
   }
 
   // Stop any prior instance before relaunching.
-  run_cmd('pkill -f fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
+  run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
   run_cmd('nohup ' . escapeshellarg($fallbackScript) . ' >/dev/null 2>&1 &', $output, $code);
   if ($code !== 0) {
     $detail = trim(implode("\n", $output));
@@ -217,11 +249,14 @@ function start_fallback_runner($fallbackScript, &$messages, &$errors, $reason = 
   return true;
 }
 
-function restart_agent($serviceName, $fallbackScript, &$messages, &$errors) {
+function restart_agent($serviceName, $fallbackScript, $pluginDir, &$messages, &$errors) {
+  if (!try_install_agent($pluginDir, $messages, $errors)) {
+    return;
+  }
+
   $unitPresent = systemd_unit_path($serviceName) !== '';
 
   if (is_systemd() && $unitPresent) {
-    // Prefer direct systemctl (FPP pages often run as a privileged web user).
     run_cmd('systemctl restart ' . escapeshellarg($serviceName) . ' 2>&1', $output, $code);
     if ($code !== 0) {
       run_cmd('sudo -n systemctl restart ' . escapeshellarg($serviceName) . ' 2>&1', $output, $code);
@@ -233,6 +268,7 @@ function restart_agent($serviceName, $fallbackScript, &$messages, &$errors) {
     $detail = trim(implode("\n", $output));
     start_fallback_runner(
       $fallbackScript,
+      $pluginDir,
       $messages,
       $errors,
       'Systemd restart failed' . ($detail !== '' ? (': ' . $detail) : '') . '.'
@@ -243,15 +279,15 @@ function restart_agent($serviceName, $fallbackScript, &$messages, &$errors) {
   if (is_systemd() && !$unitPresent) {
     start_fallback_runner(
       $fallbackScript,
+      $pluginDir,
       $messages,
       $errors,
-      'systemd unit not installed yet — re-run Content Setup → Plugin Manager → Reinstall, or: sudo bash ' .
-        dirname($fallbackScript) . '/../scripts/fpp_install.sh'
+      'systemd unit not installed yet — run: sudo bash ' . install_script_path($pluginDir)
     );
     return;
   }
 
-  start_fallback_runner($fallbackScript, $messages, $errors, 'Systemd not available.');
+  start_fallback_runner($fallbackScript, $pluginDir, $messages, $errors, 'Systemd not available.');
 }
 
 $messages = array();
