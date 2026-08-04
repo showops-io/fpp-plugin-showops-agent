@@ -155,14 +155,16 @@ else
     download_file "$GITHUB_RELEASE_BASE/$name" "$dest"
   }
 
-  if download_release_asset "$asset_tar" "$tmp_tar"; then
-    install_mode="tar"
+  # Prefer the slim binary (~7MB) over the tarball (~20MB). Small FPP boards
+  # often fail tar downloads/extracts on /tmp space or timeouts.
+  if download_release_asset "$asset_bin" "$tmp_bin"; then
+    install_mode="bin"
   else
-    log "Tarball not found; falling back to binary download"
-    if download_release_asset "$asset_bin" "$tmp_bin"; then
-      install_mode="bin"
+    log "Binary download failed; falling back to tarball"
+    if download_release_asset "$asset_tar" "$tmp_tar"; then
+      install_mode="tar"
     else
-      log "Failed to download $asset_tar or $asset_bin"
+      log "Failed to download $asset_bin or $asset_tar"
       rm -rf "$tmp_dir"
       exit 1
     fi
@@ -322,8 +324,34 @@ write_unit_file() {
 GENERATED_UNIT="$PLUGIN_DIR/system/fpp-monitor-agent.generated.service"
 write_unit_file "$GENERATED_UNIT"
 
-# Ensure wrapper is executable in the plugin tree (unit ExecStart points here).
-run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
+# Wrapper already lives in the plugin tree — never `install` a file onto itself
+# (GNU install fails with "same file" and aborts the whole FPP plugin install).
+if [[ -f "$FALLBACK_SCRIPT" ]]; then
+  run_cmd chmod 0755 "$FALLBACK_SCRIPT" || true
+elif [[ -f "$REPO_ROOT/system/fpp-monitor-agent.sh" ]]; then
+  run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT" || true
+fi
+
+start_fallback_runner() {
+  if is_dry_run; then
+    log "DRY_RUN: would start fallback runner $FALLBACK_SCRIPT"
+    return 0
+  fi
+  if [[ ! -x "$FALLBACK_SCRIPT" && -f "$FALLBACK_SCRIPT" ]]; then
+    chmod 0755 "$FALLBACK_SCRIPT" || true
+  fi
+  if [[ -x "$BIN_PATH" ]]; then
+    nohup "$BIN_PATH" --config "$CONFIG_PATH" >>"$LOG_FILE" 2>&1 &
+    return 0
+  fi
+  if [[ -x "$FALLBACK_SCRIPT" ]]; then
+    nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
+  fi
+}
+
+# From here on, the binary is installed. Do not fail the FPP plugin install for
+# systemd/crontab issues — ShowOps UI can still start the agent.
+set +e
 
 if is_systemd; then
   log "Installing systemd service"
@@ -333,17 +361,15 @@ if is_systemd; then
     else
       run_privileged install -m 0644 "$GENERATED_UNIT" /etc/systemd/system/fpp-monitor-agent.service
     fi
-    run_privileged systemctl daemon-reload
-    run_privileged systemctl enable fpp-monitor-agent.service
+    run_privileged systemctl daemon-reload || log "WARNING: systemctl daemon-reload failed"
+    run_privileged systemctl enable fpp-monitor-agent.service || log "WARNING: systemctl enable failed"
     restart_output=""
     restart_code=0
     if is_dry_run; then
       log "DRY_RUN: systemctl restart fpp-monitor-agent.service"
     else
-      set +e
       restart_output="$(run_privileged systemctl restart fpp-monitor-agent.service 2>&1)"
       restart_code=$?
-      set -e
     fi
     if [[ $restart_code -eq 0 ]] || is_dry_run; then
       run_privileged systemctl --no-pager --full status fpp-monitor-agent.service || true
@@ -353,27 +379,33 @@ if is_systemd; then
       else
         log "Systemd restart failed with exit code $restart_code"
       fi
-      log "Falling back to runner"
-      run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
+      log "Falling back to direct agent start"
+      start_fallback_runner
     fi
   else
     log "Systemd present but cannot write /etc/systemd (not root). Using fallback runner."
     log "To enable systemd later: install -m 0644 $GENERATED_UNIT /etc/systemd/system/fpp-monitor-agent.service && systemctl daemon-reload && systemctl enable --now fpp-monitor-agent.service"
-    run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
+    start_fallback_runner
   fi
 else
   log "Systemd not detected; installing fallback runner"
-  run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
+  start_fallback_runner
   if have_command crontab; then
     log "Registering fallback runner at boot via crontab"
     if is_dry_run; then
       log "DRY_RUN: would add @reboot $FALLBACK_SCRIPT to crontab"
     else
-      (crontab -l 2>/dev/null | grep -v "fpp-monitor-agent.sh" ; echo "@reboot $FALLBACK_SCRIPT") | crontab -
+      (crontab -l 2>/dev/null | grep -v "fpp-monitor-agent.sh" ; echo "@reboot $FALLBACK_SCRIPT") | crontab - || log "WARNING: crontab update failed"
     fi
   else
     log "crontab not available; fallback runner will not be auto-started"
   fi
 fi
 
-log "Install complete"
+if [[ -x "$BIN_PATH" ]] || is_dry_run; then
+  log "Install complete"
+  exit 0
+fi
+
+log "Install finished but agent binary missing at $BIN_PATH"
+exit 1
