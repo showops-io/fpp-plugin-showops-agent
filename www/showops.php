@@ -590,6 +590,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
     $errors = array();
+    // Fresh install should idle the agent — do not resume a leftover pairing storm
+    // from plugindata that survived plugin uninstall.
+    $current = read_config($configPath);
+    $reset = $current;
+    $reset['api_base_url'] = 'https://api.showops.io';
+    $reset['pairing_requested'] = false;
+    $reset['pairing_request_id'] = '';
+    $reset['pairing_code'] = '';
+    $reset['pairing_expires_at'] = '';
+    $reset['pairing_status'] = '';
+    $reset['pairing_device_nonce'] = '';
+    $reset['unpair_requested'] = false;
+    $resetErr = '';
+    write_config_atomic($configPath, $reset, $resetErr);
+
     $hadBinary = agent_binary_path($pluginDir) !== '';
     if ($hadBinary) {
       $messages[] = 'Agent is already installed. Starting it…';
@@ -606,6 +621,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($hadBinary || agent_binary_path($pluginDir) !== '') {
           $messages[] = 'Install is complete. Next step: Generate Pairing Code (not Install again).';
         }
+      } else {
+        $messages[] = 'Agent installed and running. Next: Generate Pairing Code.';
       }
     }
   } elseif ($action === 'tail') {
@@ -631,11 +648,23 @@ $pairingStatus = isset($config['pairing_status']) ? $config['pairing_status'] : 
 $pairingRequestId = isset($config['pairing_request_id']) ? $config['pairing_request_id'] : '';
 $pairingRequested = !empty($config['pairing_requested']);
 
+// Plugin uninstall leaves plugindata + logs. Until the binary is present again,
+// hide stale pairing UI so a reinstall does not look already mid-pair.
+if (!$installed && !$enrolled) {
+  $pairingCode = '';
+  $pairingExpires = '';
+  $pairingStatus = '';
+  $pairingRequestId = '';
+  $pairingRequested = false;
+  $lastLog = '';
+  $logs = '';
+}
+
 $pairingHint = '';
 $statusUpper = strtoupper($pairingStatus);
-if ($statusUpper === 'ALREADY_PAIRED' || strpos($logs, 'http_status_409') !== false || strpos($logs, 'device_already_paired') !== false) {
+if ($installed && ($statusUpper === 'ALREADY_PAIRED' || strpos($logs, 'http_status_409') !== false || strpos($logs, 'device_already_paired') !== false)) {
   $pairingHint = 'This FPP is already paired in ShowOps. Open ShowOps → Devices, remove/unpair the existing device for this player, wait a minute, then Generate Pairing Code once.';
-} elseif ($statusUpper === 'RATE_LIMITED' || strpos($logs, 'http_status_429') !== false || strpos($logs, 'rate_limited') !== false) {
+} elseif ($installed && ($statusUpper === 'RATE_LIMITED' || strpos($logs, 'http_status_429') !== false || strpos($logs, 'rate_limited') !== false)) {
   $pairingHint = 'Pairing is rate-limited after too many attempts. Wait a few minutes, then click Generate Pairing Code once.';
 }
 ?>
