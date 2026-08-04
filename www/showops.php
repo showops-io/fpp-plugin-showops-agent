@@ -341,6 +341,42 @@ function agent_is_running() {
   return $code === 0;
 }
 
+function rotate_plugin_log($pluginLogPath) {
+  if ($pluginLogPath === '' || !file_exists($pluginLogPath)) {
+    return;
+  }
+  @rename($pluginLogPath, $pluginLogPath . '.bak');
+  @file_put_contents($pluginLogPath, '');
+}
+
+function reset_pairing_config($configPath) {
+  $reset = read_config($configPath);
+  $reset['api_base_url'] = 'https://api.showops.io';
+  $reset['pairing_requested'] = false;
+  $reset['pairing_request_id'] = '';
+  $reset['pairing_code'] = '';
+  $reset['pairing_expires_at'] = '';
+  $reset['pairing_status'] = '';
+  $reset['pairing_device_nonce'] = '';
+  $reset['unpair_requested'] = false;
+  $err = '';
+  return write_config_atomic($configPath, $reset, $err);
+}
+
+function pairing_code_usable($code, $expiresAt) {
+  if ($code === '') {
+    return false;
+  }
+  if ($expiresAt === '') {
+    return true;
+  }
+  $ts = strtotime($expiresAt);
+  if ($ts === false) {
+    return true;
+  }
+  return $ts > time();
+}
+
 function ensure_writable_log($preferredLog, $pluginDir) {
   $dir = dirname($preferredLog);
   if (!is_dir($dir)) {
@@ -554,13 +590,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
-        $messages[] = 'Pairing request created. Restarting agent to generate a code.';
+        $messages[] = 'Creating pairing code…';
         if (restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors)) {
           $config = wait_for_pairing_code($configPath, 12);
           if (!empty($config['pairing_code'])) {
-            $messages[] = 'Pairing code ready.';
+            $messages = array('Pairing code ready — claim it in ShowOps → Devices.');
           } elseif (empty($errors)) {
-            $errors[] = 'Agent is running but no pairing code yet. Wait a few seconds and refresh, or check the plugin log.';
+            $errors[] = 'No code yet. Wait a few seconds and refresh this page.';
           }
         }
       } else {
@@ -590,39 +626,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
     $errors = array();
-    // Fresh install should idle the agent — do not resume a leftover pairing storm
-    // from plugindata that survived plugin uninstall.
-    $current = read_config($configPath);
-    $reset = $current;
-    $reset['api_base_url'] = 'https://api.showops.io';
-    $reset['pairing_requested'] = false;
-    $reset['pairing_request_id'] = '';
-    $reset['pairing_code'] = '';
-    $reset['pairing_expires_at'] = '';
-    $reset['pairing_status'] = '';
-    $reset['pairing_device_nonce'] = '';
-    $reset['unpair_requested'] = false;
-    $resetErr = '';
-    write_config_atomic($configPath, $reset, $resetErr);
+    // Clean slate: leftover plugindata/logs from uninstall must not look like pairing.
+    reset_pairing_config($configPath);
+    rotate_plugin_log($pluginLogPath);
 
     $hadBinary = agent_binary_path($pluginDir) !== '';
-    if ($hadBinary) {
-      $messages[] = 'Agent is already installed. Starting it…';
-    }
     if ($hadBinary || try_install_agent($pluginDir, $messages, $errors)) {
-      // Install success is the binary on disk. Start is best-effort — do not
-      // bury a good install under pairing rate-limit log spam.
       $startErrors = array();
       $started = restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $startErrors);
-      if (!$started) {
-        foreach ($startErrors as $se) {
-          $errors[] = $se;
-        }
-        if ($hadBinary || agent_binary_path($pluginDir) !== '') {
-          $messages[] = 'Install is complete. Next step: Generate Pairing Code (not Install again).';
-        }
+      if ($started) {
+        $messages = array('Agent ready. Click Generate Pairing Code.');
       } else {
-        $messages[] = 'Agent installed and running. Next: Generate Pairing Code.';
+        $errors = $startErrors;
+        if (agent_binary_path($pluginDir) !== '') {
+          $messages[] = 'Agent files are installed. Click Generate Pairing Code next.';
+        }
       }
     }
   } elseif ($action === 'tail') {
@@ -632,47 +650,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $config = read_config($configPath);
 $status = service_status($serviceName);
-$lastLog = last_log_line($pluginLogPath, $serviceName);
 $installed = service_installed($serviceName, $fallbackScript, $pluginDir);
 $agentVersion = detect_agent_version($versionPaths);
 $arch = detect_arch();
 $deviceId = isset($config['device_id']) ? $config['device_id'] : '';
 $heartbeatTs = isset($config['last_heartbeat_ts']) ? $config['last_heartbeat_ts'] : '';
 $enrolled = $deviceId !== '';
-$running = ($status === 'active' || $status === 'running');
-$logs = tail_logs($serviceName, 50, $pluginLogPath);
+$running = agent_is_running() || $status === 'active' || $status === 'running';
 
 $pairingCode = isset($config['pairing_code']) ? $config['pairing_code'] : '';
 $pairingExpires = isset($config['pairing_expires_at']) ? $config['pairing_expires_at'] : '';
 $pairingStatus = isset($config['pairing_status']) ? $config['pairing_status'] : '';
 $pairingRequestId = isset($config['pairing_request_id']) ? $config['pairing_request_id'] : '';
-$pairingRequested = !empty($config['pairing_requested']);
 
-// Plugin uninstall leaves plugindata + logs. Until the binary is present again,
-// hide stale pairing UI so a reinstall does not look already mid-pair.
+// Ghost state after plugin reinstall — wipe it for real, don't just hide it.
 if (!$installed && !$enrolled) {
+  if ($pairingCode !== '' || $pairingRequestId !== '' || !empty($config['pairing_requested'])) {
+    reset_pairing_config($configPath);
+    rotate_plugin_log($pluginLogPath);
+    $config = read_config($configPath);
+  }
   $pairingCode = '';
   $pairingExpires = '';
   $pairingStatus = '';
   $pairingRequestId = '';
-  $pairingRequested = false;
-  $lastLog = '';
-  $logs = '';
 }
 
-$pairingHint = '';
+if ($pairingCode !== '' && !pairing_code_usable($pairingCode, $pairingExpires) && !$enrolled) {
+  // Expired code is useless — clear so user can generate a fresh one.
+  reset_pairing_config($configPath);
+  $config = read_config($configPath);
+  $pairingCode = '';
+  $pairingExpires = '';
+  $pairingStatus = '';
+  $pairingRequestId = '';
+}
+
+$logs = ($installed || $enrolled) ? tail_logs($serviceName, 50, $pluginLogPath) : '';
+$lastLog = ($installed || $enrolled) ? last_log_line($pluginLogPath, $serviceName) : '';
+
 $statusUpper = strtoupper($pairingStatus);
-if ($installed && ($statusUpper === 'ALREADY_PAIRED' || strpos($logs, 'http_status_409') !== false || strpos($logs, 'device_already_paired') !== false)) {
-  $pairingHint = 'This FPP is already paired in ShowOps. Open ShowOps → Devices, remove/unpair the existing device for this player, wait a minute, then Generate Pairing Code once.';
-} elseif ($installed && ($statusUpper === 'RATE_LIMITED' || strpos($logs, 'http_status_429') !== false || strpos($logs, 'rate_limited') !== false)) {
-  $pairingHint = 'Pairing is rate-limited after too many attempts. Wait a few minutes, then click Generate Pairing Code once.';
+$rateLimited = $installed && (
+  $statusUpper === 'RATE_LIMITED' ||
+  strpos($logs, 'http_status_429') !== false ||
+  strpos($logs, 'rate_limited') !== false
+);
+$alreadyPairedCloud = $installed && (
+  $statusUpper === 'ALREADY_PAIRED' ||
+  strpos($logs, 'http_status_409') !== false ||
+  strpos($logs, 'device_already_paired') !== false
+);
+
+// Single primary step for the operator.
+if ($enrolled) {
+  $step = 'paired';
+} elseif (!$installed) {
+  $step = 'install';
+} elseif ($pairingCode !== '') {
+  $step = 'claim';
+} else {
+  $step = 'pair';
 }
 ?>
 
 <style>
-/* Minimal plugin-scoped layout only — colors from Bootstrap theme tokens. */
 .showops-page .showops-pre {
-  max-height: 24rem;
+  max-height: 16rem;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -685,133 +728,98 @@ if ($installed && ($statusUpper === 'ALREADY_PAIRED' || strpos($logs, 'http_stat
 .showops-page .showops-actions .btn {
   min-height: 44px;
 }
+.showops-page .showops-code {
+  font-size: 1.75rem;
+  letter-spacing: 0.06em;
+}
+.showops-page .showops-muted-details {
+  margin-top: 1rem;
+}
 </style>
 
 <div class="container-fluid showops-page px-0 px-sm-2">
-  <h2 class="mb-3">ShowOps Configuration</h2>
-  <p class="text-body-secondary mb-3">
-    <?php if (!$installed): ?>
-      Step 1: Install Agent. Step 2: Generate Pairing Code. Step 3: Claim the code in ShowOps → Devices.
-    <?php elseif ($pairingCode !== '' && !$enrolled): ?>
-      Copy the pairing code below into ShowOps → Devices → Claim an FPP. You do not need Install Agent.
-    <?php else: ?>
-      Generate a pairing code, then claim it under Devices on showops.io.
-    <?php endif; ?>
-  </p>
+  <h2 class="mb-2">ShowOps</h2>
 
   <?php foreach ($messages as $msg): ?>
     <div class="alert alert-success"><?php echo h($msg); ?></div>
   <?php endforeach; ?>
-  <?php foreach (array_slice($errors, 0, 3) as $msg): ?>
-    <div class="alert alert-danger"><?php echo h(strlen($msg) > 500 ? substr($msg, 0, 500) . '…' : $msg); ?></div>
+  <?php foreach (array_slice($errors, 0, 2) as $msg): ?>
+    <div class="alert alert-danger"><?php echo h(strlen($msg) > 280 ? substr($msg, 0, 280) . '…' : $msg); ?></div>
   <?php endforeach; ?>
-  <?php if ($pairingHint !== '' && $pairingCode === ''): ?>
-    <div class="alert alert-warning"><?php echo h($pairingHint); ?></div>
-  <?php endif; ?>
 
   <div class="card mb-3 border bg-body-tertiary">
     <div class="card-body">
-      <h3 class="h5 card-title">Connection status</h3>
-      <div class="row g-3">
-        <div class="col-6 col-md-4 col-lg-3">
-          <div class="text-body-secondary text-uppercase small">Installed</div>
-          <div class="fw-semibold"><?php echo h($installed ? 'yes' : 'no'); ?></div>
-        </div>
-        <div class="col-6 col-md-4 col-lg-3">
-          <div class="text-body-secondary text-uppercase small">Agent</div>
-          <div class="fw-semibold"><?php echo h($running ? 'running' : 'stopped'); ?></div>
-        </div>
-        <div class="col-6 col-md-4 col-lg-3">
-          <div class="text-body-secondary text-uppercase small">Pairing</div>
-          <div class="fw-semibold"><?php echo h($enrolled ? 'paired' : 'unpaired'); ?></div>
-        </div>
-        <div class="col-6 col-md-4 col-lg-3">
-          <div class="text-body-secondary text-uppercase small">Service</div>
-          <div class="fw-semibold"><?php echo h($status); ?></div>
-        </div>
-        <div class="col-6 col-md-4 col-lg-3">
-          <div class="text-body-secondary text-uppercase small">Agent version</div>
-          <div class="fw-semibold"><?php echo h($agentVersion); ?></div>
-        </div>
-        <div class="col-6 col-md-4 col-lg-3">
-          <div class="text-body-secondary text-uppercase small">Architecture</div>
-          <div class="fw-semibold"><?php echo h($arch); ?></div>
-        </div>
-        <div class="col-12 col-md-6">
-          <div class="text-body-secondary text-uppercase small">Device ID</div>
-          <div class="fw-semibold text-break"><?php echo h($deviceId !== '' ? $deviceId : 'N/A'); ?></div>
-        </div>
-        <div class="col-12 col-md-6">
-          <div class="text-body-secondary text-uppercase small">Last heartbeat</div>
-          <div class="fw-semibold text-break"><?php echo h($heartbeatTs !== '' ? $heartbeatTs : 'N/A'); ?></div>
-        </div>
-        <div class="col-12">
-          <div class="text-body-secondary text-uppercase small">Last log line</div>
-          <div class="fw-semibold text-break"><?php echo h($lastLog !== '' ? $lastLog : 'N/A'); ?></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card mb-3 border bg-body-tertiary">
-    <div class="card-body">
-      <h3 class="h5 card-title">Pairing</h3>
       <form method="post">
-        <div class="mb-2">
-          <?php if ($enrolled): ?>
-            <span class="badge text-bg-success">Paired</span>
-          <?php elseif ($pairingCode !== '' || $pairingRequestId !== '' || $pairingRequested): ?>
-            <span class="badge text-bg-warning"><?php echo h($pairingStatus !== '' ? $pairingStatus : 'PENDING'); ?></span>
-          <?php else: ?>
-            <span class="badge text-bg-secondary">Unpaired</span>
-          <?php endif; ?>
-        </div>
+        <?php if ($step === 'install'): ?>
+          <h3 class="h5">Install the agent</h3>
+          <p class="text-body-secondary">Downloads the monitoring agent (~7MB). Takes up to a minute. Click once.</p>
+          <div class="showops-actions">
+            <button class="btn btn-primary btn-lg" type="submit" name="action" value="install">
+              Install Agent
+            </button>
+          </div>
 
-        <?php if ($pairingCode !== ''): ?>
-          <div class="mb-2">
-            <div class="text-body-secondary text-uppercase small">Pairing code</div>
-            <div class="fs-4 fw-bold font-monospace"><?php echo h($pairingCode); ?></div>
-            <div class="text-body-secondary small">Expires at: <?php echo h($pairingExpires !== '' ? $pairingExpires : 'unknown'); ?></div>
+        <?php elseif ($step === 'pair'): ?>
+          <h3 class="h5">Generate a pairing code</h3>
+          <p class="text-body-secondary mb-2">
+            Agent <?php echo h($agentVersion); ?> is installed<?php echo $running ? ' and running' : ''; ?>.
+            Create a code, then claim it in ShowOps → Devices.
+          </p>
+          <?php if ($rateLimited): ?>
+            <div class="alert alert-warning">Too many pairing attempts. Wait about 2 minutes, then try once.</div>
+          <?php elseif ($alreadyPairedCloud): ?>
+            <div class="alert alert-warning">This player is already linked in ShowOps. Remove it under Devices, then generate a new code.</div>
+          <?php endif; ?>
+          <div class="showops-actions">
+            <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" <?php echo $rateLimited ? 'disabled' : ''; ?>>
+              Generate Pairing Code
+            </button>
+          </div>
+
+        <?php elseif ($step === 'claim'): ?>
+          <h3 class="h5">Claim this player</h3>
+          <p class="text-body-secondary mb-2">Enter this code in ShowOps → Devices → Claim an FPP.</p>
+          <div class="showops-code fw-bold font-monospace mb-1"><?php echo h($pairingCode); ?></div>
+          <div class="text-body-secondary small mb-3">Expires: <?php echo h($pairingExpires !== '' ? $pairingExpires : 'soon'); ?></div>
+          <div class="showops-actions">
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="pair">Get a new code</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Refresh / restart agent</button>
+          </div>
+
+        <?php else: /* paired */ ?>
+          <h3 class="h5">Paired</h3>
+          <p class="mb-1">Device ID: <span class="font-monospace"><?php echo h($deviceId); ?></span></p>
+          <p class="text-body-secondary small mb-3">
+            Agent <?php echo h($running ? 'running' : 'stopped'); ?>
+            · <?php echo h($agentVersion); ?>
+            <?php if ($heartbeatTs !== ''): ?> · last heartbeat <?php echo h($heartbeatTs); ?><?php endif; ?>
+          </p>
+          <div class="showops-actions">
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart Agent</button>
+            <button class="btn btn-outline-danger" type="submit" name="action" value="unpair">Unpair</button>
           </div>
         <?php endif; ?>
+      </form>
+    </div>
+  </div>
 
-        <?php if ($pairingCode === '' && !$enrolled): ?>
-          <p class="text-body-secondary small mb-2">
-            Click Generate Pairing Code, then enter it in ShowOps to claim this device.
-          </p>
-        <?php endif; ?>
-
-        <div class="showops-actions mt-2">
-          <?php if (!$installed): ?>
-            <button class="btn btn-primary" type="submit" name="action" value="install">
-              1. Install Agent
-            </button>
-          <?php endif; ?>
-          <button class="btn btn-success" type="submit" name="action" value="pair" <?php echo ($enrolled || !$installed) ? 'disabled' : ''; ?>>
-            <?php echo !$installed ? '2. Generate Pairing Code' : 'Generate Pairing Code'; ?>
-          </button>
-          <button class="btn btn-outline-secondary" type="submit" name="action" value="unpair" <?php echo $enrolled ? '' : 'disabled'; ?>>
-            Unpair / Reset
-          </button>
-          <button class="btn btn-outline-secondary" type="submit" name="action" value="restart" <?php echo !$installed ? 'disabled' : ''; ?>>Restart Agent</button>
+  <details class="showops-muted-details mb-3">
+    <summary class="text-body-secondary">Technical details</summary>
+    <div class="card mt-2 border bg-body-tertiary">
+      <div class="card-body small">
+        <div>Installed: <?php echo h($installed ? 'yes' : 'no'); ?> · Running: <?php echo h($running ? 'yes' : 'no'); ?> · Arch: <?php echo h($arch); ?></div>
+        <div class="text-break mt-1">Last log: <?php echo h($lastLog !== '' ? $lastLog : 'none'); ?></div>
+      </div>
+    </div>
+    <?php if ($installed || $enrolled): ?>
+      <div class="card mt-2 border bg-body-tertiary">
+        <div class="card-body">
+          <form method="post" class="mb-2">
+            <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="tail">Refresh Logs</button>
+          </form>
+          <pre class="showops-pre border rounded p-2 bg-body text-body mb-0"><?php echo h($logs !== '' ? $logs : 'No log output yet.'); ?></pre>
         </div>
-        <?php if (!$installed): ?>
-          <p class="text-body-secondary small mt-2 mb-0">
-            Install downloads the agent (~7MB) and can take up to a minute. Do not click repeatedly.
-          </p>
-        <?php endif; ?>
-      </form>
-    </div>
-  </div>
-
-  <div class="card mb-3 border bg-body-tertiary">
-    <div class="card-body">
-      <h3 class="h5 card-title">Logs</h3>
-      <form method="post" class="mb-2">
-        <button class="btn btn-outline-secondary" type="submit" name="action" value="tail">Refresh Logs</button>
-      </form>
-      <pre class="showops-pre border rounded p-3 bg-body text-body mb-2"><?php echo h($logs !== '' ? $logs : 'No log output available.'); ?></pre>
-      <div class="text-body-secondary small">Showing latest 50 lines from the plugin log (FPP-rotated).</div>
-    </div>
-  </div>
+      </div>
+    <?php endif; ?>
+  </details>
 </div>
