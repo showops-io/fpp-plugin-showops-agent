@@ -1,12 +1,13 @@
 <?php
 
 /**
- * FPP plugin API endpoints for showops-agent.
+ * FPP plugin API endpoints for fpp-plugin-showops-agent.
  *
  * Registered by FPP's /www/api/index.php addPluginEndpoints().
+ * Function name must match getEndpoints + plugin-dir with hyphens removed.
  */
 
-function getEndpointsshowopsagent()
+function getEndpointsfpppluginshowopsagent()
 {
     return array(
         array(
@@ -15,6 +16,12 @@ function getEndpointsshowopsagent()
             'callback' => 'showopsAgentUpdates',
         ),
     );
+}
+
+/** @deprecated Legacy install dir name showops-agent; kept for mid-upgrade hosts. */
+function getEndpointsshowopsagent()
+{
+    return getEndpointsfpppluginshowopsagent();
 }
 
 function showopsAgentUpdates()
@@ -38,9 +45,16 @@ function showopsAgentUpdates()
 
 function showopsAgentDetectCurrentVersion()
 {
+    global $settings;
+
+    $media = isset($settings['mediaDirectory']) ? $settings['mediaDirectory'] : '/home/fpp/media';
+    $pluginRoot = dirname(__FILE__);
+
     $versionPaths = array(
         '/opt/fpp-monitor-agent/VERSION',
-        '/home/fpp/media/plugins/showops-agent/bin/VERSION',
+        $pluginRoot . '/bin/VERSION',
+        $media . '/plugins/fpp-plugin-showops-agent/bin/VERSION',
+        $media . '/plugins/showops-agent/bin/VERSION',
     );
 
     foreach ($versionPaths as $path) {
@@ -62,10 +76,22 @@ function showopsAgentDetectCurrentVersion()
 
 function showopsAgentResolveLatestVersion()
 {
+    $showopsUrl = 'https://api.showops.io/v1/agent/releases/latest';
+    $json = showopsAgentHttpGet($showopsUrl, array(
+        'Accept: application/json',
+        'User-Agent: fpp-plugin-showops-agent',
+    ));
+    if ($json !== null) {
+        $data = json_decode($json, true);
+        if (is_array($data) && !empty($data['version']) && is_string($data['version'])) {
+            return trim($data['version']);
+        }
+    }
+
     $apiUrl = 'https://api.github.com/repos/showops-io/fpp-agent-monitor/releases/latest';
     $json = showopsAgentHttpGet($apiUrl, array(
         'Accept: application/vnd.github+json',
-        'User-Agent: showops-agent-fpp-plugin',
+        'User-Agent: fpp-plugin-showops-agent',
     ));
     if ($json !== null) {
         $data = json_decode($json, true);
@@ -76,7 +102,7 @@ function showopsAgentResolveLatestVersion()
 
     $manifestUrl = 'https://raw.githubusercontent.com/showops-io/fpp-agent-monitor/main/latest.json';
     $manifestJson = showopsAgentHttpGet($manifestUrl, array(
-        'User-Agent: showops-agent-fpp-plugin',
+        'User-Agent: fpp-plugin-showops-agent',
     ));
     if ($manifestJson !== null) {
         $manifest = json_decode($manifestJson, true);
@@ -156,4 +182,3 @@ function showopsAgentCompareVersions($a, $b)
 
     return 0;
 }
-

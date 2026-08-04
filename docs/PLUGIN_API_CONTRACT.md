@@ -1,13 +1,13 @@
 # FPP ShowOps monitor plugin — integration contract
 
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Slice:** #2 — follows monitor-agent plugin slice #1; scaling and deferral notes live in company issue **SHO-253**.  
 **Status:** Frozen interfaces below are covered by CI (`scripts/verify_plugin_contract.sh`).
 
 This document is the **versioned boundary** between:
 
 - This repo (FPP plugin: install shell, systemd glue, `www/showops.php` UI), and
-- The Go agent binary ([fpp-agent-monitor](https://github.com/jlwright325/fpp-agent-monitor)), which reads/writes the shared JSON config and calls ShowOps HTTP APIs.
+- The Go agent binary ([fpp-agent-monitor](https://github.com/showops-io/fpp-agent-monitor)), which reads/writes the shared JSON config and calls ShowOps HTTP APIs.
 
 Breaking changes to paths, config semantics, or plugin UI actions require **bumping `contractVersion`** in `docs/contract-fingerprints.json` and updating this file.
 
@@ -18,15 +18,15 @@ Breaking changes to paths, config semantics, or plugin UI actions require **bump
 | Symbol | Path | Owner |
 |--------|------|--------|
 | User config | `/home/fpp/media/config/fpp-monitor-agent.json` | Plugin installer creates parent dir; agent + UI read/write |
-| Plugin root | `/home/fpp/media/plugins/showops-agent` | FPP plugin manager + `scripts/fpp_install.sh` |
-| Agent binary (privileged install) | `/opt/fpp-monitor-agent/fpp-monitor-agent` | Installer when `sudo` available |
+| Plugin root | `/home/fpp/media/plugins/fpp-plugin-showops-agent` | FPP plugin manager (`repoName`) + `scripts/fpp_install.sh` |
+| Agent binary (privileged install) | `/opt/fpp-monitor-agent/fpp-monitor-agent` | Installer when running as root |
 | Fallback wrapper | `{plugin root}/system/fpp-monitor-agent.sh` | Invoked by systemd unit or manual fallback |
 | Systemd unit | `fpp-monitor-agent.service` (file under `/etc/systemd/system/` or `/lib/systemd/system/`) | Installer |
-| Agent binary (no sudo) | `{plugin root}/bin/fpp-monitor-agent` | Installer fallback layout |
+| Agent binary (no root) | `{plugin root}/bin/fpp-monitor-agent` | Installer fallback layout |
 | Release tag file | `/opt/fpp-monitor-agent/VERSION` or `{plugin root}/bin/VERSION` | Installer |
-| Install log | `/home/fpp/media/logs/fpp-monitor-agent-install.log` | Installer / uninstaller (append) |
+| Plugin log | `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` | Installer / uninstaller (append; FPP rotates) |
 
-Legacy path `/home/fpp/media/plugins/fpp-monitor-agent` may still appear on upgraded systems; `fpp_uninstall.sh` removes artifacts there when present.
+Legacy paths `/home/fpp/media/plugins/showops-agent` and `/home/fpp/media/plugins/fpp-monitor-agent` may still appear on upgraded systems; `fpp_uninstall.sh` removes artifacts there when present.
 
 ---
 

@@ -17,7 +17,7 @@
 
 set -uo pipefail
 
-PLUGIN_DIR="${SHOWOPS_PLUGIN_DIR:-/home/fpp/media/plugins/showops-agent}"
+PLUGIN_DIR="${SHOWOPS_PLUGIN_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-showops-io}"
 AGENT_REPO_NAME="${AGENT_REPO_NAME:-fpp-agent-monitor}"
 SHOWOPS_API_BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
@@ -26,11 +26,11 @@ SHOWOPS_API_BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
 CACHE_FILE="${SHOWOPS_UPDATE_CHECK_CACHE:-/home/fpp/media/tmp/showops-agent-update-check}"
 CACHE_TTL_SEC="${SHOWOPS_UPDATE_CHECK_TTL_SEC:-900}"
 HTTP_TIMEOUT_SEC="${SHOWOPS_UPDATE_CHECK_TIMEOUT_SEC:-4}"
-USER_AGENT="showops-agent-fpp-plugin"
+USER_AGENT="fpp-plugin-showops-agent"
 
 # Diagnostics go to stderr; FPP reads the last line of stdout as the answer.
 note() {
-  echo "[showops-agent update check] $*" >&2
+  echo "[fpp-plugin-showops-agent update check] $*" >&2
 }
 
 read_installed_version() {

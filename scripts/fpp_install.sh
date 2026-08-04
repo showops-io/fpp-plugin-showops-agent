@@ -7,16 +7,17 @@ REPO_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 
 log_install_session_start "install"
 
-PLUGIN_DIR="/home/fpp/media/plugins/showops-agent"
-CONFIG_PATH="/home/fpp/media/config/fpp-monitor-agent.json"
+# Plugin lives wherever FPP cloned this repo (repoName = fpp-plugin-showops-agent).
+PLUGIN_DIR="$REPO_ROOT"
+CONFIG_PATH="${MEDIADIR}/config/fpp-monitor-agent.json"
 INSTALL_DIR="/opt/fpp-monitor-agent"
 BIN_LINK="/usr/local/bin/fpp-monitor-agent"
 FALLBACK_SCRIPT="$PLUGIN_DIR/system/fpp-monitor-agent.sh"
-TMP_FALLBACK_DIR="/home/fpp/media/tmp"
+TMP_FALLBACK_DIR="${MEDIADIR}/tmp"
 
-if ! can_sudo; then
+if ! can_privileged; then
   INSTALL_DIR="$PLUGIN_DIR/bin"
-  log "No sudo; using $INSTALL_DIR for binary install"
+  log "Not root and no passwordless sudo; using $INSTALL_DIR for binary install"
 fi
 
 BIN_PATH="$INSTALL_DIR/fpp-monitor-agent"
@@ -212,23 +213,23 @@ else
     fi
 
     log "Installing bundle to $INSTALL_DIR"
-    run_cmd_sudo install -m 0755 "$extract_dir/fpp-monitor-agent" "$BIN_PATH"
+    run_privileged install -m 0755 "$extract_dir/fpp-monitor-agent" "$BIN_PATH"
     if [[ -f "$extract_dir/cloudflared" ]]; then
-      run_cmd_sudo install -m 0755 "$extract_dir/cloudflared" "$INSTALL_DIR/cloudflared"
+      run_privileged install -m 0755 "$extract_dir/cloudflared" "$INSTALL_DIR/cloudflared"
     else
       log "cloudflared not found in bundle; remote sessions will not work until installed"
     fi
   else
     log "Installing binary to $BIN_PATH"
-    run_cmd_sudo install -m 0755 "$tmp_bin" "$BIN_PATH"
+    run_privileged install -m 0755 "$tmp_bin" "$BIN_PATH"
     log "cloudflared not bundled in this release; remote sessions will not work until installed"
   fi
-  run_cmd_sudo sh -c "echo \"$RESOLVED_TAG\" > \"$INSTALL_DIR/VERSION\""
+  run_privileged sh -c "echo \"$RESOLVED_TAG\" > \"$INSTALL_DIR/VERSION\""
 
-  if can_sudo; then
-    run_cmd sudo ln -sf "$BIN_PATH" "$BIN_LINK"
+  if can_privileged; then
+    run_privileged ln -sf "$BIN_PATH" "$BIN_LINK"
   else
-    log "No sudo; skipping symlink to $BIN_LINK"
+    log "Cannot write $BIN_LINK; skipping symlink"
   fi
 
   rm -rf "$tmp_dir"
@@ -236,11 +237,11 @@ fi
 
 # Remote ShowOps "Update Agent" runs as User=fpp. Keep the install tree and
 # legacy download dir writable so self-update can replace the binary.
-if ! is_dry_run && can_sudo && [[ -d "$INSTALL_DIR" ]]; then
+if ! is_dry_run && can_privileged && [[ -d "$INSTALL_DIR" ]]; then
   DATA_DIR="/var/lib/fpp-monitor-agent/downloads"
-  run_cmd_sudo mkdir -p "$DATA_DIR"
-  run_cmd_sudo chown -R fpp:fpp /var/lib/fpp-monitor-agent || true
-  run_cmd_sudo chown -R fpp:fpp "$INSTALL_DIR" || true
+  run_privileged mkdir -p "$DATA_DIR"
+  run_privileged chown -R fpp:fpp /var/lib/fpp-monitor-agent || true
+  run_privileged chown -R fpp:fpp "$INSTALL_DIR" || true
 fi
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
@@ -277,24 +278,32 @@ fi
 if is_dry_run; then
   log "DRY_RUN: would ensure $CONFIG_PATH is writable by fpp"
 else
-  if can_sudo; then
-    run_cmd_sudo chown fpp:fpp "$CONFIG_PATH" || true
-    run_cmd_sudo chmod 664 "$CONFIG_PATH" || true
+  if can_privileged; then
+    run_privileged chown fpp:fpp "$CONFIG_PATH" || true
+    run_privileged chmod 600 "$CONFIG_PATH" || true
   else
-    run_cmd chmod 664 "$CONFIG_PATH" || true
+    run_cmd chmod 600 "$CONFIG_PATH" || true
   fi
 fi
 
 if is_systemd; then
   log "Installing systemd service"
-  if can_sudo; then
-    run_cmd_sudo install -m 0644 "$REPO_ROOT/system/fpp-monitor-agent.service" /etc/systemd/system/fpp-monitor-agent.service
-    run_cmd_sudo systemctl daemon-reload
-    run_cmd_sudo systemctl enable fpp-monitor-agent.service
-    restart_output="$(run_cmd_capture sudo systemctl restart fpp-monitor-agent.service)"
-    restart_code=$?
-    if [[ $restart_code -eq 0 ]]; then
-      run_cmd_sudo systemctl --no-pager --full status fpp-monitor-agent.service || true
+  if can_privileged; then
+    run_privileged install -m 0644 "$REPO_ROOT/system/fpp-monitor-agent.service" /etc/systemd/system/fpp-monitor-agent.service
+    run_privileged systemctl daemon-reload
+    run_privileged systemctl enable fpp-monitor-agent.service
+    restart_output=""
+    restart_code=0
+    if is_dry_run; then
+      log "DRY_RUN: systemctl restart fpp-monitor-agent.service"
+    else
+      set +e
+      restart_output="$(systemctl restart fpp-monitor-agent.service 2>&1)"
+      restart_code=$?
+      set -e
+    fi
+    if [[ $restart_code -eq 0 ]] || is_dry_run; then
+      run_privileged systemctl --no-pager --full status fpp-monitor-agent.service || true
     else
       if [[ -n "$restart_output" ]]; then
         log "Systemd restart failed: $restart_output"
@@ -307,7 +316,7 @@ if is_systemd; then
       run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
     fi
   else
-    log "Systemd present but no sudo; using fallback runner"
+    log "Systemd present but cannot privilege-escalate; using fallback runner"
     run_cmd mkdir -p "$PLUGIN_DIR/system"
     run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT"
     run_cmd nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
