@@ -1,6 +1,6 @@
 # FPP ShowOps monitor plugin — integration contract
 
-**Version:** 1.5.0  
+**Version:** 1.5.1  
 **Slice:** #2 — follows monitor-agent plugin slice #1; scaling and deferral notes live in company issue **SHO-253**.  
 **Status:** Frozen interfaces below are covered by CI (`scripts/verify_plugin_contract.sh`).
 
@@ -70,12 +70,13 @@ Environment variable **`FPP_MONITOR_INSTALL_RUN_ID`** is exported for the script
 
 | Value | Behavior |
 |-------|----------|
-| `pair` | Set pairing flags in config; restart agent |
+| `pair` | Set pairing flags in config; install agent if needed; restart agent |
 | `unpair` | Request unpair; restart agent |
 | `restart` | Restart agent service / fallback runner |
+| `install` | Download agent binary into plugin `bin/` from ShowOps release channel |
 | `tail` | Refresh log snippet in UI |
 
-CI asserts these four actions exist in `www/showops.php`. New actions require a contract bump and a fingerprint update.
+CI asserts these five actions exist in `www/showops.php`. New actions require a contract bump and a fingerprint update.
 
 ---
 
