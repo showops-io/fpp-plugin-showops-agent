@@ -52,7 +52,7 @@ The Go binary itself lives in the [fpp-agent-monitor](https://github.com/showops
 
 ## Requirements
 
-- Falcon Player (FPP) v9.0 or later
+- Falcon Player (FPP) **v7.0 or later** (Plugin Manager install; version windows cover 7.x–8.x and 9+)
 - Linux (ARMv7, ARM64, or x86_64)
 - `curl` or `wget` for downloading the agent binary
 - `sha256sum` or `shasum` for checksum verification
@@ -68,7 +68,7 @@ ShowOps is **not** in FPP's built-in plugin catalog yet, so it will not appear u
 
 FPP only accepts a **raw `pluginInfo.json` URL**, not the GitHub repository homepage or `.git` clone URL.
 
-1. In FPP, set **Status → Settings → UI → UI Level** to **Developer** (URL paste is disabled in Basic UI).
+1. In FPP, set **Status → Settings → UI → UI Level** to **Advanced** or **Developer** if the ShowOps card does not appear after pasting (raise the level, clear the box, paste again).
 2. Open **Content Setup → Plugin Manager**.
 3. Paste this exact URL into the search box:
 
@@ -85,7 +85,7 @@ FPP then clones `srcURL` into `/home/fpp/media/plugins/showops-agent` and runs `
 | What you pasted / did | What happens |
 |----------------------|--------------|
 | GitHub repo URL (`…/fpp-plugin-showops-agent`) | Fetch fails — FPP rewrites it to a non-file raw URL |
-| Correct `pluginInfo.json` URL but Basic UI | Nothing loads — URL install requires Developer UI |
+| Correct `pluginInfo.json` URL but no card | Raise UI Level to Advanced/Developer, clear the box, paste again; confirm FPP 7+ |
 | Old personal raw URL (`jlwright325/fpp-plugin-monitor-agent`) | May show as incompatible on non–FPP-9 majors (`maxFPPVersion: "0"`) |
 
 ### Manual installation
@@ -171,7 +171,7 @@ The config file is located at `/home/fpp/media/config/fpp-monitor-agent.json`. I
 
 1. In FPP, navigate to **Plugins → ShowOps Configuration**.
 2. Click **Generate Pairing Code**.
-3. A 6-character pairing code will appear. Enter it in the ShowOps dashboard under **Devices → Add Device**.
+3. A pairing code such as `FPP-XXXX-XXXX` will appear. Enter it in the ShowOps dashboard under **Devices → Claim / Add Device**.
 4. The page will update automatically once the pairing is approved.
 5. The agent will begin sending heartbeats within one polling cycle.
 
