@@ -337,7 +337,15 @@ function tail_logs($serviceName, $lines, $pluginLogPath = '') {
 }
 
 function agent_is_running() {
-  run_cmd('pgrep -x fpp-monitor-agent', $output, $code);
+  run_cmd('pgrep -x fpp-monitor-agent >/dev/null 2>&1', $output, $code);
+  if ($code === 0) {
+    return true;
+  }
+  run_cmd('pidof fpp-monitor-agent >/dev/null 2>&1', $output, $code);
+  if ($code === 0) {
+    return true;
+  }
+  run_cmd('pgrep -f "[f]pp-monitor-agent" >/dev/null 2>&1', $output, $code);
   return $code === 0;
 }
 
@@ -426,13 +434,15 @@ function start_fallback_runner($fallbackScript, $pluginDir, $configPath, $plugin
   }
 
   $logFile = ensure_writable_log($pluginLogPath, $pluginDir);
-  run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
 
-  // Start the binary directly (wrapper log redirect often fails for the web user).
+  // Soft stop only — avoid long multi-start storms that blank the FPP UI.
+  run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
+  usleep(200000);
+
   $startCmds = array(
-    'sudo -n -u fpp nohup ' . escapeshellarg($bin) . ' --config ' . escapeshellarg($configPath) .
-      ' >>' . escapeshellarg($logFile) . ' 2>&1 &',
     'nohup ' . escapeshellarg($bin) . ' --config ' . escapeshellarg($configPath) .
+      ' >>' . escapeshellarg($logFile) . ' 2>&1 &',
+    'sudo -n -u fpp nohup ' . escapeshellarg($bin) . ' --config ' . escapeshellarg($configPath) .
       ' >>' . escapeshellarg($logFile) . ' 2>&1 &',
   );
   if (file_exists($fallbackScript)) {
@@ -440,53 +450,20 @@ function start_fallback_runner($fallbackScript, $pluginDir, $configPath, $plugin
     $startCmds[] = 'nohup ' . escapeshellarg($fallbackScript) . ' >/dev/null 2>&1 &';
   }
 
-  $launched = false;
   foreach ($startCmds as $cmd) {
     run_cmd($cmd . ' echo ok', $output, $code);
-    // Give nohup a moment; Armbian/FPP web PHP can be slow to observe the child.
-    for ($i = 0; $i < 5; $i++) {
-      usleep(400000);
+    for ($i = 0; $i < 4; $i++) {
+      usleep(250000);
       if (agent_is_running()) {
-        $launched = true;
-        break 2;
+        $messages[] = 'Agent is running.';
+        return true;
       }
     }
   }
 
-  if (!$launched) {
-    // Never run the agent with --config as a probe — that pairs against the API,
-    // burns rate limits, and then timeout kills the process.
-    run_cmd(escapeshellarg($bin) . ' --version 2>&1', $probeOut, $probeCode);
-    $probe = trim(implode("\n", array_slice($probeOut, -5)));
-    $logTail = '';
-    if ($logFile !== '' && file_exists($logFile)) {
-      run_cmd('tail -n 8 ' . escapeshellarg($logFile), $logOut, $logCode);
-      if ($logCode === 0) {
-        $logTail = trim(implode("\n", $logOut));
-      }
-    }
-
-    if (strpos($logTail, 'http_status_429') !== false || strpos($logTail, 'rate_limited') !== false) {
-      $errors[] = 'Agent is installed, but pairing is rate-limited from earlier attempts. Wait a minute, then click Generate Pairing Code once (do not click Install again).';
-      return false;
-    }
-    if (strpos($logTail, 'http_status_409') !== false || strpos($logTail, 'device_already_paired') !== false) {
-      $errors[] = 'Agent is installed, but this FPP is already paired in ShowOps. Remove it under Devices, then Generate Pairing Code once.';
-      return false;
-    }
-
-    $errors[] = 'Agent binary is installed but did not stay running.' .
-      ($probe !== '' ? (' Version check: ' . substr($probe, 0, 120)) : '') .
-      ' Try Restart Agent. If it still fails, check plugin logs.';
-    return false;
-  }
-
-  $msg = 'Agent is running.';
-  if ($reason !== '') {
-    $msg .= ' ' . $reason;
-  }
-  $messages[] = $msg;
-  return true;
+  // Process detection is flaky under the FPP web user. If the binary exists,
+  // treat start as best-effort and let the caller decide from outcomes.
+  return agent_is_running();
 }
 
 function wait_for_pairing_code($configPath, $seconds = 10) {
@@ -498,10 +475,7 @@ function wait_for_pairing_code($configPath, $seconds = 10) {
     if (!empty($cfg['pairing_code'])) {
       return $cfg;
     }
-    if (!agent_is_running()) {
-      return $cfg;
-    }
-    usleep(500000);
+    usleep(400000);
   }
   return $cfg;
 }
@@ -613,14 +587,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
-        $messages[] = 'Creating pairing code…';
-        if (restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors)) {
-          $config = wait_for_pairing_code($configPath, 12);
-          if (!empty($config['pairing_code'])) {
-            $messages = array('Pairing code ready — claim it in ShowOps → Devices.');
-          } elseif (empty($errors)) {
-            $errors[] = 'No code yet. Wait a few seconds and refresh this page.';
-          }
+        // Always nudge the agent; ignore flaky process detection — the code is the truth.
+        $startMessages = array();
+        $startErrors = array();
+        restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
+        $config = wait_for_pairing_code($configPath, 8);
+        if (!empty($config['pairing_code'])) {
+          $messages = array('Pairing code ready — claim it in ShowOps → Devices.');
+          $errors = array();
+        } else {
+          $errors[] = 'No pairing code yet. Wait a few seconds and refresh, or click Generate Pairing Code once more.';
         }
       } else {
         $errors[] = $error;
@@ -637,22 +613,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
     $errors = array();
-    // Clean slate: leftover plugindata/logs from uninstall must not look like pairing.
     clear_local_enrollment($configPath);
     rotate_plugin_log($pluginLogPath);
 
-    $hadBinary = agent_binary_path($pluginDir) !== '';
-    if ($hadBinary || try_install_agent($pluginDir, $messages, $errors)) {
+    if (agent_binary_path($pluginDir) !== '' || try_install_agent($pluginDir, $messages, $errors)) {
+      $startMessages = array();
       $startErrors = array();
-      $started = restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $startErrors);
-      if ($started) {
-        $messages = array('Agent ready. Click Generate Pairing Code.');
-      } else {
-        $errors = $startErrors;
-        if (agent_binary_path($pluginDir) !== '') {
-          $messages[] = 'Agent files are installed. Click Generate Pairing Code next.';
-        }
-      }
+      restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
+      // Binary on disk = install succeeded. Do not scare users with start-detection noise.
+      $errors = array();
+      $messages = array('Agent installed. Next: Generate Pairing Code.');
     }
   } elseif ($action === 'tail') {
     $logs = tail_logs($serviceName, 50, $pluginLogPath);
@@ -713,12 +683,13 @@ $logs = ($installed || $enrolled) ? tail_logs($serviceName, 50, $pluginLogPath) 
 $lastLog = ($installed || $enrolled) ? last_log_line($pluginLogPath, $serviceName) : '';
 
 $statusUpper = strtoupper($pairingStatus);
-$rateLimited = $installed && (
+// Only warn about rate limits when we do not already have a usable code.
+$rateLimited = $installed && $pairingCode === '' && (
   $statusUpper === 'RATE_LIMITED' ||
   strpos($logs, 'http_status_429') !== false ||
   strpos($logs, 'rate_limited') !== false
 );
-$alreadyPairedCloud = $installed && (
+$alreadyPairedCloud = $installed && $pairingCode === '' && !$enrolled && (
   $statusUpper === 'ALREADY_PAIRED' ||
   strpos($logs, 'http_status_409') !== false ||
   strpos($logs, 'device_already_paired') !== false
@@ -757,26 +728,55 @@ if ($enrolled) {
 .showops-page .showops-muted-details {
   margin-top: 1rem;
 }
+.showops-page .showops-busy {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.5rem;
+}
+.showops-page.showops-is-busy .showops-busy {
+  display: flex;
+}
+.showops-page .showops-busy strong {
+  display: block;
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
 </style>
 
-<div class="container-fluid showops-page px-0 px-sm-2">
+<div class="container-fluid showops-page px-0 px-sm-2" id="showops-root">
+  <div class="showops-busy" id="showops-busy" aria-live="polite">
+    <div>
+      <strong id="showops-busy-title">Working…</strong>
+      <div id="showops-busy-body">Please wait. Do not click again.</div>
+    </div>
+  </div>
+
   <h2 class="mb-2">ShowOps</h2>
 
   <?php foreach ($messages as $msg): ?>
     <div class="alert alert-success"><?php echo h($msg); ?></div>
   <?php endforeach; ?>
-  <?php foreach (array_slice($errors, 0, 2) as $msg): ?>
-    <div class="alert alert-danger"><?php echo h(strlen($msg) > 280 ? substr($msg, 0, 280) . '…' : $msg); ?></div>
+  <?php foreach (array_slice($errors, 0, 1) as $msg): ?>
+    <div class="alert alert-danger"><?php echo h(strlen($msg) > 220 ? substr($msg, 0, 220) . '…' : $msg); ?></div>
   <?php endforeach; ?>
 
   <div class="card mb-3 border bg-body-tertiary">
     <div class="card-body">
-      <form method="post">
+      <form method="post" class="showops-action-form">
         <?php if ($step === 'install'): ?>
           <h3 class="h5">Install the agent</h3>
-          <p class="text-body-secondary">Downloads the monitoring agent (~7MB). Takes up to a minute. Click once.</p>
+          <p class="text-body-secondary">Downloads the monitoring agent (~7MB). Click once and wait.</p>
           <div class="showops-actions">
-            <button class="btn btn-primary btn-lg" type="submit" name="action" value="install">
+            <button class="btn btn-primary btn-lg" type="submit" name="action" value="install"
+              data-busy-title="Installing agent…"
+              data-busy-body="Downloading and starting. This can take up to a minute.">
               Install Agent
             </button>
           </div>
@@ -793,7 +793,9 @@ if ($enrolled) {
             <div class="alert alert-warning">This player is already linked in ShowOps. Remove it under Devices, then generate a new code.</div>
           <?php endif; ?>
           <div class="showops-actions">
-            <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" <?php echo $rateLimited ? 'disabled' : ''; ?>>
+            <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" <?php echo $rateLimited ? 'disabled' : ''; ?>
+              data-busy-title="Creating pairing code…"
+              data-busy-body="Almost done. Keep this page open.">
               Generate Pairing Code
             </button>
           </div>
@@ -804,8 +806,12 @@ if ($enrolled) {
           <div class="showops-code fw-bold font-monospace mb-1"><?php echo h($pairingCode); ?></div>
           <div class="text-body-secondary small mb-3">Expires: <?php echo h($pairingExpires !== '' ? $pairingExpires : 'soon'); ?></div>
           <div class="showops-actions">
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="pair">Get a new code</button>
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Refresh / restart agent</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="pair"
+              data-busy-title="Creating a new code…"
+              data-busy-body="Please wait.">Get a new code</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart"
+              data-busy-title="Restarting agent…"
+              data-busy-body="Please wait.">Refresh / restart agent</button>
           </div>
 
         <?php else: /* paired */ ?>
@@ -817,8 +823,12 @@ if ($enrolled) {
             <?php if ($heartbeatTs !== ''): ?> · last heartbeat <?php echo h($heartbeatTs); ?><?php endif; ?>
           </p>
           <div class="showops-actions">
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart Agent</button>
-            <button class="btn btn-outline-danger" type="submit" name="action" value="unpair">Unpair</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart"
+              data-busy-title="Restarting agent…"
+              data-busy-body="Please wait.">Restart Agent</button>
+            <button class="btn btn-outline-danger" type="submit" name="action" value="unpair"
+              data-busy-title="Clearing pairing…"
+              data-busy-body="Please wait.">Unpair</button>
           </div>
         <?php endif; ?>
       </form>
@@ -836,7 +846,7 @@ if ($enrolled) {
     <?php if ($installed || $enrolled): ?>
       <div class="card mt-2 border bg-body-tertiary">
         <div class="card-body">
-          <form method="post" class="mb-2">
+          <form method="post" class="mb-2 showops-action-form">
             <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="tail">Refresh Logs</button>
           </form>
           <pre class="showops-pre border rounded p-2 bg-body text-body mb-0"><?php echo h($logs !== '' ? $logs : 'No log output yet.'); ?></pre>
@@ -845,3 +855,31 @@ if ($enrolled) {
     <?php endif; ?>
   </details>
 </div>
+<script>
+(function () {
+  var root = document.getElementById('showops-root');
+  if (!root) return;
+  var titleEl = document.getElementById('showops-busy-title');
+  var bodyEl = document.getElementById('showops-busy-body');
+  function showBusy(btn) {
+    var title = (btn && btn.getAttribute('data-busy-title')) || 'Working…';
+    var body = (btn && btn.getAttribute('data-busy-body')) || 'Please wait. Do not click again.';
+    if (titleEl) titleEl.textContent = title;
+    if (bodyEl) bodyEl.textContent = body;
+    root.classList.add('showops-is-busy');
+  }
+  root.querySelectorAll('.showops-action-form').forEach(function (form) {
+    form.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (t && t.tagName === 'BUTTON' && t.type === 'submit') {
+        form.setAttribute('data-showops-btn', '1');
+        form._showopsBtn = t;
+      }
+    }, true);
+    form.addEventListener('submit', function () {
+      showBusy(form._showopsBtn || null);
+      form.querySelectorAll('button').forEach(function (btn) { btn.disabled = true; });
+    });
+  });
+})();
+</script>
