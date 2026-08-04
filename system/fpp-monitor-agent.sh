@@ -25,11 +25,16 @@ if [[ ! -x "$BIN_PATH" ]]; then
   exit 1
 fi
 
-mkdir -p "$(dirname "$CONFIG_PATH")" "$(dirname "$LOG_FILE")"
-
-export FPP_MONITOR_AGENT_CONFIG="$CONFIG_PATH"
-export SHOWOPS_CONFIG_PATH="$CONFIG_PATH"
-
 # Append to the FPP-managed plugin log (PLUGIN_GUIDELINES.md §1).
+# Do not abort if the preferred log is not writable (common for web-user starts).
+set +e
+mkdir -p "$(dirname "$CONFIG_PATH")" "$(dirname "$LOG_FILE")" 2>/dev/null
+if ! touch "$LOG_FILE" 2>/dev/null; then
+  LOG_FILE="${PLUGIN_DIR}/bin/agent-runtime.log"
+  mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
+  touch "$LOG_FILE" 2>/dev/null || true
+fi
+set -e
+
 exec >>"$LOG_FILE" 2>&1
 exec "$BIN_PATH" --config "$CONFIG_PATH"

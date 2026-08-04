@@ -339,27 +339,86 @@ function tail_logs($serviceName, $lines, $pluginLogPath = '') {
     (isset($GLOBALS['pluginDir']) ? install_script_path($GLOBALS['pluginDir']) : 'scripts/fpp_install.sh');
 }
 
-function start_fallback_runner($fallbackScript, $pluginDir, &$messages, &$errors, $reason = '') {
-  if (agent_binary_path($pluginDir) === '') {
+function agent_is_running() {
+  run_cmd('pgrep -x fpp-monitor-agent', $output, $code);
+  return $code === 0;
+}
+
+function ensure_writable_log($preferredLog, $pluginDir) {
+  $dir = dirname($preferredLog);
+  if (!is_dir($dir)) {
+    @mkdir($dir, 0755, true);
+  }
+  if (is_dir($dir) && is_writable($dir)) {
+    return $preferredLog;
+  }
+  $fallback = $pluginDir . '/bin/agent-runtime.log';
+  if (!is_dir(dirname($fallback))) {
+    @mkdir(dirname($fallback), 0755, true);
+  }
+  return $fallback;
+}
+
+function start_fallback_runner($fallbackScript, $pluginDir, $configPath, $pluginLogPath, &$messages, &$errors, $reason = '') {
+  $bin = agent_binary_path($pluginDir);
+  if ($bin === '') {
     $errors[] = 'Cannot start agent: binary missing after install attempt.';
     return false;
   }
-
-  if (!file_exists($fallbackScript)) {
-    $errors[] = 'Agent runner missing at ' . $fallbackScript . '. Reinstall the plugin.';
+  if (!is_executable($bin)) {
+    @chmod($bin, 0755);
+  }
+  if (!file_exists($configPath)) {
+    $errors[] = 'Agent config missing at ' . $configPath;
     return false;
   }
 
-  // Stop any prior instance before relaunching.
+  $logFile = ensure_writable_log($pluginLogPath, $pluginDir);
   run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
-  run_cmd('nohup ' . escapeshellarg($fallbackScript) . ' >/dev/null 2>&1 &', $output, $code);
-  if ($code !== 0) {
-    $detail = trim(implode("\n", $output));
-    $errors[] = 'Failed to launch agent runner' . ($detail !== '' ? (': ' . $detail) : '.');
+
+  // Start the binary directly (wrapper log redirect often fails for the web user).
+  $startCmds = array(
+    'sudo -n -u fpp nohup ' . escapeshellarg($bin) . ' --config ' . escapeshellarg($configPath) .
+      ' >>' . escapeshellarg($logFile) . ' 2>&1 &',
+    'nohup ' . escapeshellarg($bin) . ' --config ' . escapeshellarg($configPath) .
+      ' >>' . escapeshellarg($logFile) . ' 2>&1 &',
+  );
+  if (file_exists($fallbackScript)) {
+    @chmod($fallbackScript, 0755);
+    $startCmds[] = 'nohup ' . escapeshellarg($fallbackScript) . ' >/dev/null 2>&1 &';
+  }
+
+  $launched = false;
+  foreach ($startCmds as $cmd) {
+    run_cmd($cmd . ' echo ok', $output, $code);
+    usleep(800000);
+    if (agent_is_running()) {
+      $launched = true;
+      break;
+    }
+  }
+
+  if (!$launched) {
+    run_cmd(
+      'timeout 4s ' . escapeshellarg($bin) . ' --config ' . escapeshellarg($configPath) . ' 2>&1 || true',
+      $probeOut,
+      $probeCode
+    );
+    $probe = trim(implode("\n", array_slice($probeOut, -12)));
+    $logTail = '';
+    if ($logFile !== '' && file_exists($logFile)) {
+      run_cmd('tail -n 20 ' . escapeshellarg($logFile), $logOut, $logCode);
+      if ($logCode === 0) {
+        $logTail = trim(implode("\n", $logOut));
+      }
+    }
+    $errors[] = 'Agent binary installed but failed to stay running.' .
+      ($probe !== '' ? (' Probe output: ' . $probe) : '') .
+      ($logTail !== '' ? (' Log: ' . $logTail) : ' (no log output yet)');
     return false;
   }
 
-  $msg = 'Agent started via fallback runner.';
+  $msg = 'Agent is running.';
   if ($reason !== '') {
     $msg .= ' ' . $reason;
   }
@@ -367,10 +426,68 @@ function start_fallback_runner($fallbackScript, $pluginDir, &$messages, &$errors
   return true;
 }
 
-function restart_agent($serviceName, $fallbackScript, $pluginDir, &$messages, &$errors) {
-  if (!try_install_agent($pluginDir, $messages, $errors)) {
-    return;
+function wait_for_pairing_code($configPath, $seconds = 10) {
+  $deadline = time() + $seconds;
+  $cfg = read_config($configPath);
+  while (time() < $deadline) {
+    clearstatcache(true, $configPath);
+    $cfg = read_config($configPath);
+    if (!empty($cfg['pairing_code'])) {
+      return $cfg;
+    }
+    if (!agent_is_running()) {
+      return $cfg;
+    }
+    usleep(500000);
   }
+  return $cfg;
+}
+
+function try_register_systemd_unit($pluginDir, $configPath, $pluginLogPath, &$messages) {
+  if (!is_systemd() || systemd_unit_path('fpp-monitor-agent.service') !== '') {
+    return false;
+  }
+  $bin = agent_binary_path($pluginDir);
+  if ($bin === '') {
+    return false;
+  }
+  $unitSrc = $pluginDir . '/system/fpp-monitor-agent.service';
+  if (!file_exists($unitSrc)) {
+    return false;
+  }
+  $generated = $pluginDir . '/system/fpp-monitor-agent.generated.service';
+  $unit = file_get_contents($unitSrc);
+  if ($unit === false) {
+    return false;
+  }
+  $unit = str_replace(
+    array('__PLUGIN_DIR__', '__CONFIG_PATH__', '__BIN_PATH__', '__LOG_FILE__'),
+    array($pluginDir, $configPath, $bin, $pluginLogPath),
+    $unit
+  );
+  if (@file_put_contents($generated, $unit) === false) {
+    return false;
+  }
+  run_cmd(
+    'sudo -n install -m 0644 ' . escapeshellarg($generated) . ' /etc/systemd/system/fpp-monitor-agent.service' .
+    ' && sudo -n systemctl daemon-reload' .
+    ' && sudo -n systemctl enable --now fpp-monitor-agent.service 2>&1',
+    $output,
+    $code
+  );
+  if ($code === 0 && systemd_unit_path('fpp-monitor-agent.service') !== '') {
+    $messages[] = 'Registered systemd unit fpp-monitor-agent.service.';
+    return true;
+  }
+  return false;
+}
+
+function restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, &$messages, &$errors) {
+  if (!try_install_agent($pluginDir, $messages, $errors)) {
+    return false;
+  }
+
+  try_register_systemd_unit($pluginDir, $configPath, $pluginLogPath, $messages);
 
   $unitPresent = systemd_unit_path($serviceName) !== '';
 
@@ -379,34 +496,32 @@ function restart_agent($serviceName, $fallbackScript, $pluginDir, &$messages, &$
     if ($code !== 0) {
       run_cmd('sudo -n systemctl restart ' . escapeshellarg($serviceName) . ' 2>&1', $output, $code);
     }
-    if ($code === 0) {
+    usleep(800000);
+    if ($code === 0 && agent_is_running()) {
       $messages[] = 'Agent restarted via systemd.';
-      return;
+      return true;
     }
     $detail = trim(implode("\n", $output));
-    start_fallback_runner(
+    return start_fallback_runner(
       $fallbackScript,
       $pluginDir,
+      $configPath,
+      $pluginLogPath,
       $messages,
       $errors,
       'Systemd restart failed' . ($detail !== '' ? (': ' . $detail) : '') . '.'
     );
-    return;
   }
 
-  if (is_systemd() && !$unitPresent) {
-    start_fallback_runner(
-      $fallbackScript,
-      $pluginDir,
-      $messages,
-      $errors,
-      'systemd unit not registered yet (agent still runs; optional: sudo bash ' .
-        install_script_path($pluginDir) . ').'
-    );
-    return;
-  }
-
-  start_fallback_runner($fallbackScript, $pluginDir, $messages, $errors, 'Systemd not available.');
+  return start_fallback_runner(
+    $fallbackScript,
+    $pluginDir,
+    $configPath,
+    $pluginLogPath,
+    $messages,
+    $errors,
+    $unitPresent ? '' : 'systemd unit not registered yet.'
+  );
 }
 
 $messages = array();
@@ -420,9 +535,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
       $current = read_config($configPath);
       $updated = $current;
-      if (isset($updated['api_base_url'])) {
-        unset($updated['api_base_url']);
-      }
+      $updated['api_base_url'] = 'https://api.showops.io';
       $updated['pairing_requested'] = true;
       $updated['pairing_request_id'] = '';
       $updated['pairing_code'] = '';
@@ -434,7 +547,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
         $messages[] = 'Pairing request created. Restarting agent to generate a code.';
-        restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
+        if (restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors)) {
+          $config = wait_for_pairing_code($configPath, 12);
+          if (!empty($config['pairing_code'])) {
+            $messages[] = 'Pairing code ready.';
+          } elseif (empty($errors)) {
+            $errors[] = 'Agent is running but no pairing code yet. Wait a few seconds and refresh, or check the plugin log.';
+          }
+        }
       } else {
         $errors[] = $error;
       }
@@ -443,9 +563,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
       $current = read_config($configPath);
       $updated = $current;
-      if (isset($updated['api_base_url'])) {
-        unset($updated['api_base_url']);
-      }
+      $updated['api_base_url'] = isset($updated['api_base_url']) && $updated['api_base_url'] !== ''
+        ? $updated['api_base_url']
+        : 'https://api.showops.io';
       $updated['pairing_requested'] = false;
       $updated['unpair_requested'] = true;
       $updated['pairing_status'] = 'UNPAIRING';
@@ -453,16 +573,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $error = '';
       if (write_config_atomic($configPath, $updated, $error)) {
         $messages[] = 'Unpair requested. Restarting agent.';
-        restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
+        restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
       } else {
         $errors[] = $error;
       }
     }
   } elseif ($action === 'restart') {
-    restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
+    restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'install') {
     if (try_install_agent($pluginDir, $messages, $errors)) {
-      restart_agent($serviceName, $fallbackScript, $pluginDir, $messages, $errors);
+      restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
     }
   } elseif ($action === 'tail') {
     $logs = tail_logs($serviceName, 50, $pluginLogPath);
