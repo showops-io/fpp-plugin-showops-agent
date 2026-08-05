@@ -1,6 +1,6 @@
 # FPP ShowOps monitor plugin — integration contract
 
-**Version:** 1.5.1  
+**Version:** 1.5.5  
 **Slice:** #2 — follows monitor-agent plugin slice #1; scaling and deferral notes live in company issue **SHO-253**.  
 **Status:** Frozen interfaces below are covered by CI (`scripts/verify_plugin_contract.sh`).
 
@@ -118,7 +118,13 @@ The plugin downloads release assets from [fpp-agent-monitor](https://github.com/
 - `fpp-monitor-agent` (executable)
 - Optional `cloudflared` (executable) for remote sessions
 
-Checksum verification uses `checksums.txt` from the same release. **Do not** change asset naming without updating `scripts/fpp_install.sh` and this document.
+Checksum verification uses `checksums.txt` from the same release. Look up the SHA by **exact** asset filename (second field). Substring matches are wrong: `fpp-monitor-agent-linux-armv7` also appears inside `fpp-monitor-agent-linux-armv7.tar.gz`. **Do not** change asset naming without updating `scripts/fpp_install.sh` and this document.
+
+### Field pitfalls (install / run)
+
+- **Sourcing FPP `scripts/common` under `set -u`:** that file expands unset `LD_LIBRARY_PATH`. Always `set +eu` around the source in `install_common.sh` and `system/fpp-monitor-agent.sh`, then restore `set -euo pipefail`. Otherwise Plugin Manager reports only `Could not properly install plugin`, or systemd shows the agent never running.
+- **UI path:** FPP requests `showops.php` at the plugin root (`menu.inc`). Keep root `showops.php`; leave `www/showops.php` as a shim.
+- **Pairing:** creating a code is not enrollment. The agent must be running to poll claim; `Running: no` means ShowOps claim will not finish on-device.
 
 ---
 
