@@ -1,6 +1,6 @@
 # FPP ShowOps monitor plugin — integration contract
 
-**Version:** 1.5.5  
+**Version:** 1.5.6  
 **Slice:** #2 — follows monitor-agent plugin slice #1; scaling and deferral notes live in company issue **SHO-253**.  
 **Status:** Frozen interfaces below are covered by CI (`scripts/verify_plugin_contract.sh`).
 
@@ -24,6 +24,7 @@ Breaking changes to paths, config semantics, or plugin UI actions require **bump
 | Systemd unit | `fpp-monitor-agent.service` (file under `/etc/systemd/system/` or `/lib/systemd/system/`) | Installer (paths substituted at install) |
 | Release tag file | `{plugin root}/bin/VERSION` | Installer |
 | Plugin log | `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` | Installer / wrapper / uninstaller (append; FPP rotates) |
+| Enrollment stash | `/home/fpp/media/config/showops-agent-enrollment.json` | Copy of user config taken on uninstall; restored on the next install if plugindata config is missing. Deleted only by Unpair in the plugin UI. |
 
 **Legacy (migrated or cleaned on install/uninstall):** `/home/fpp/media/config/fpp-monitor-agent.json`, `/opt/fpp-monitor-agent/`, `/var/lib/fpp-monitor-agent/`, and old plugin dirs `showops-agent` / `fpp-monitor-agent`.
 
@@ -48,7 +49,7 @@ The **authoritative field list** for operators is in the root [README](../README
 
 ### Uninstall (full cleanup)
 
-Uninstall **deletes** plugindata (`fpp-monitor-agent.json`), the systemd unit, `{plugin root}/bin/`, legacy `/opt` + `/var/lib` + `media/config` paths, and related symlinks/crontab entries. Tracked plugin sources (wrapper, PHP) remain until FPP removes the plugin directory. Reinstall creates a fresh default config.
+Uninstall **deletes** plugindata (`fpp-monitor-agent.json`), the systemd unit, `{plugin root}/bin/`, legacy `/opt` + `/var/lib` + `media/config/fpp-monitor-agent.json`, and related symlinks/crontab entries. Before deleting plugindata it copies the config to the enrollment stash so FPP Plugin Manager **Reinstall All** (required after an FPPOS upgrade) can restore pairing. Tracked plugin sources (wrapper, PHP) remain until FPP removes the plugin directory. Reinstall restores the stash when present; otherwise it writes a fresh default config. Explicit Unpair in `showops.php` deletes the stash.
 
 Default `restart_fpp_command` is **empty**. Prefer FPP’s `restartFlag` over shelling `systemctl restart fpp` (PLUGIN_GUIDELINES.md §3.6 / §4.1).
 

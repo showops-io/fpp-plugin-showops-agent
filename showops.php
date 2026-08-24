@@ -391,6 +391,17 @@ function reset_pairing_config($configPath) {
   return write_config_atomic($configPath, $reset, $err);
 }
 
+function enrollment_stash_path($mediaDir) {
+  return rtrim((string)$mediaDir, '/') . '/config/showops-agent-enrollment.json';
+}
+
+function delete_enrollment_stash($mediaDir) {
+  $path = enrollment_stash_path($mediaDir);
+  if (is_file($path)) {
+    @unlink($path);
+  }
+}
+
 /** Wipe local enrollment so the UI cannot show a cloud device that no longer exists. */
 function clear_local_enrollment($configPath) {
   $reset = read_config($configPath);
@@ -524,9 +535,28 @@ function http_json_post($url, $payload, &$error, $timeoutSec = 20) {
   return $data;
 }
 
+function local_hostname() {
+  foreach (array('/etc/hostname', '/proc/sys/kernel/hostname') as $path) {
+    if (!is_readable($path)) {
+      continue;
+    }
+    $value = trim((string)@file_get_contents($path));
+    if ($value !== '') {
+      return $value;
+    }
+  }
+  $uname = php_uname('n');
+  return is_string($uname) ? trim($uname) : '';
+}
+
 function create_pairing_code_via_api($apiBase, $fingerprint, &$error) {
   $url = rtrim($apiBase, '/') . '/v1/pairing/requests';
-  $resp = http_json_post($url, array('device_fingerprint' => $fingerprint), $error, 25);
+  $hostname = local_hostname();
+  $payload = array('device_fingerprint' => $fingerprint);
+  if ($hostname !== '') {
+    $payload['device_info'] = array('hostname' => $hostname);
+  }
+  $resp = http_json_post($url, $payload, $error, 25);
   if ($resp === null) {
     return null;
   }
@@ -758,6 +788,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Always clear local credentials first. Cloud device may already be gone
     // (reinstall/replace), and the agent may not be installed to finish unpair.
     clear_local_enrollment($configPath);
+    delete_enrollment_stash($mediaDir);
     run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
     rotate_plugin_log($pluginLogPath);
     $messages[] = 'Local pairing cleared. Install the agent, then generate a new code.';

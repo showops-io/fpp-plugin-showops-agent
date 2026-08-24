@@ -183,3 +183,51 @@ run_privileged() {
 # Back-compat aliases used by older script revisions / local wrappers.
 can_sudo() { can_privileged; }
 run_cmd_sudo() { run_privileged "$@"; }
+
+# FPP Plugin Manager "Reinstall All" (prompted after FPPOS) is uninstall+install.
+# Keep enrollment outside plugindata so pairing survives that cycle.
+# Deleted only by explicit Unpair in the plugin UI.
+enrollment_stash_path() {
+  echo "${MEDIADIR}/config/showops-agent-enrollment.json"
+}
+
+stash_enrollment_config() {
+  local src="$1"
+  local dest
+  dest="$(enrollment_stash_path)"
+  if [[ ! -f "$src" ]]; then
+    return 0
+  fi
+  if is_dry_run; then
+    log "DRY_RUN: would stash enrollment from $src to $dest"
+    return 0
+  fi
+  ensure_dir "$(dirname "$dest")"
+  run_cmd cp -a "$src" "$dest"
+  if can_privileged; then
+    run_privileged chmod 600 "$dest" || true
+    run_privileged chown fpp:fpp "$dest" || true
+  else
+    run_cmd chmod 600 "$dest" || true
+  fi
+  log "Stashed enrollment to $dest (survives plugin reinstall after FPP OS upgrade)"
+}
+
+restore_enrollment_config() {
+  local dest="$1"
+  local src
+  src="$(enrollment_stash_path)"
+  if [[ -f "$dest" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$src" ]]; then
+    return 0
+  fi
+  if is_dry_run; then
+    log "DRY_RUN: would restore enrollment from $src to $dest"
+    return 0
+  fi
+  ensure_dir "$(dirname "$dest")"
+  run_cmd cp -a "$src" "$dest"
+  log "Restored enrollment from $src"
+}
