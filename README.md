@@ -43,7 +43,7 @@ tail -n 100 /home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log
 bash /home/fpp/media/plugins/fpp-plugin-showops-agent/scripts/fpp_uninstall.sh
 ```
 
-Removes the agent binary, systemd unit, plugindata config, and legacy `/opt` paths. Reinstall creates a fresh config.
+Removes the agent binary, systemd unit, plugindata config, and legacy `/opt` paths. Enrollment is copied to `/home/fpp/media/config/showops-agent-enrollment.json` first so FPP **Reinstall All** after an OS upgrade can restore pairing. Explicit Unpair in the plugin UI deletes that stash. Reinstall restores the stash when present; otherwise it writes a fresh config.
 ## Engineers
 
 - Agent binary repo: [fpp-agent-monitor](https://github.com/showops-io/fpp-agent-monitor)

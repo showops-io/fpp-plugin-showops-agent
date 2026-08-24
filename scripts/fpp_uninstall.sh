@@ -60,6 +60,12 @@ if have_command crontab; then
 fi
 
 # PLUGIN_GUIDELINES.md §2.1: remove plugindata + any legacy config.
+# Stash enrollment first so FPP "Reinstall All" after FPPOS can restore pairing.
+if [[ -f "$CONFIG_PATH" ]]; then
+  stash_enrollment_config "$CONFIG_PATH"
+elif [[ -f "$LEGACY_CONFIG_PATH" ]]; then
+  stash_enrollment_config "$LEGACY_CONFIG_PATH"
+fi
 if is_dry_run; then
   log "DRY_RUN: would remove config $CONFIG_PATH and $LEGACY_CONFIG_PATH"
   log "DRY_RUN: would remove plugindata dir $PLUGINDATA_DIR"

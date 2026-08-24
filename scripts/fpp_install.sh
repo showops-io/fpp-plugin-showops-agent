@@ -261,6 +261,8 @@ if [[ ! -f "$CONFIG_PATH" && -f "$LEGACY_CONFIG_PATH" ]]; then
   fi
 fi
 
+restore_enrollment_config "$CONFIG_PATH"
+
 if [[ ! -f "$CONFIG_PATH" ]]; then
   log "Writing default config to $CONFIG_PATH"
   if is_dry_run; then
