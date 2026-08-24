@@ -1,0 +1,34 @@
+# pluginInfo.json agent-version stamp (FPP 9 Update detection)
+
+FPP **9.x** Plugin Manager shows **Update** only after:
+
+1. `POST /api/plugin/:RepoName/updates` runs `git fetch`
+2. `PluginHasUpdates()` finds commits on `origin/branch` ahead of HEAD
+
+It does **not** run `scripts/fpp_update_check.sh` (that is FPP 10+). Whitespace-only
+nudges are easy to miss and do not bump install fallbacks.
+
+## Required on every agent release
+
+When **`showops-io/fpp-agent-monitor`** publishes a new tag (e.g. v1.2.48):
+
+1. Stamp the plugin repo with that agent version (not trailing-space only):
+   ```bash
+   bash scripts/set_agent_release.sh vX.Y.Z
+   ```
+   This updates:
+   - `pluginInfo.json` → `agentVersion` + description `Ships agent vX.Y.Z`
+   - `scripts/fpp_install.sh` → `DEFAULT_RELEASE_VERSION`
+   - `showops.php` → offline fallback version
+2. Commit message: `Stamp plugin for agent vX.Y.Z (FPP 9 Update detection).`
+3. Push `main`; verify raw URL:
+   `https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json`
+4. Prefer the automated path: agent `release.yml` job `stamp-plugin-info` →
+   `repository_dispatch` `agent-release` (needs `SHOWOPS_PLUGIN_DISPATCH_TOKEN`
+   on the agent repo with `contents:write` + `actions:write` on this plugin repo).
+
+Do **not** treat “GitHub Release published” or “API latest.json updated” as
+release-complete without this stamp.
+
+On the board: Plugin Manager → **Check for Updates** (forces `git fetch`) →
+**Update** on ShowOps Agent (runs `git pull` + `fpp_install.sh`).

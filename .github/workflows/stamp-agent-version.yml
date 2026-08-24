@@ -1,0 +1,67 @@
+name: Stamp agent version
+
+# FPP 9 Plugin Manager only shows Update after git fetch sees new plugin commits
+# (CheckForPluginUpdates → git fetch → PluginHasUpdates git log). Agent CI must
+# stamp a real agentVersion into pluginInfo.json + install fallbacks on every tag.
+on:
+  repository_dispatch:
+    types: [agent-release]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Agent tag (e.g. v1.2.48)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          set -eu
+          tag="${{ github.event.client_payload.tag || github.event.inputs.tag }}"
+          if [ -z "${tag}" ]; then
+            echo "tag is required" >&2
+            exit 1
+          fi
+          case "$tag" in
+            v*) ;;
+            *) tag="v${tag}" ;;
+          esac
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Stamp plugin files
+        run: bash scripts/set_agent_release.sh "${{ steps.tag.outputs.tag }}"
+
+      - name: Commit and push
+        run: |
+          set -eu
+          TAG="${{ steps.tag.outputs.tag }}"
+          if git diff --quiet -- pluginInfo.json scripts/fpp_install.sh showops.php; then
+            echo "Already stamped for ${TAG}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pluginInfo.json scripts/fpp_install.sh showops.php
+          git commit -m "Stamp plugin for agent ${TAG} (FPP 9 Update detection)."
+          git push origin HEAD:main
+
+      - name: Verify raw pluginInfo.json changed
+        run: |
+          set -eu
+          TAG="${{ steps.tag.outputs.tag }}"
+          sleep 3
+          curl -fsSL "https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json" \
+            | tee /tmp/pluginInfo.remote.json
+          grep -F "\"agentVersion\": \"${TAG}\"" /tmp/pluginInfo.remote.json
+          grep -F "Ships agent ${TAG}" /tmp/pluginInfo.remote.json
