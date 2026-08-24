@@ -145,6 +145,23 @@ function detect_agent_version($paths) {
   return 'unknown';
 }
 
+function detect_running_agent_version($pluginDir) {
+  $bin = agent_binary_path($pluginDir);
+  if ($bin === '') {
+    return '';
+  }
+  $output = array();
+  $code = 0;
+  exec(escapeshellarg($bin) . ' -version 2>/dev/null', $output, $code);
+  if ($code === 0 && isset($output[0])) {
+    $ver = trim($output[0]);
+    if ($ver !== '') {
+      return $ver;
+    }
+  }
+  return '';
+}
+
 function detect_arch() {
   $arch = php_uname('m');
   if (strpos($arch, 'armv7') !== false) {
@@ -824,7 +841,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $config = read_config($configPath);
 $status = service_status($serviceName);
 $installed = service_installed($serviceName, $fallbackScript, $pluginDir);
-$agentVersion = detect_agent_version($versionPaths);
+$agentVersion = detect_running_agent_version($pluginDir);
+if ($agentVersion === '') {
+  $agentVersion = detect_agent_version($versionPaths);
+}
 $arch = detect_arch();
 $deviceId = isset($config['device_id']) ? trim((string)$config['device_id']) : '';
 $heartbeatTs = isset($config['last_heartbeat_ts']) ? $config['last_heartbeat_ts'] : '';
