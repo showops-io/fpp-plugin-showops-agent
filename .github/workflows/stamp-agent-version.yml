@@ -56,12 +56,30 @@ jobs:
           git commit -m "Stamp plugin for agent ${TAG} (FPP 9 Update detection)."
           git push origin HEAD:main
 
-      - name: Verify raw pluginInfo.json changed
+      - name: Verify pluginInfo.json stamped on main
         run: |
           set -eu
           TAG="${{ steps.tag.outputs.tag }}"
-          sleep 3
-          curl -fsSL "https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json" \
-            | tee /tmp/pluginInfo.remote.json
-          grep -F "\"agentVersion\": \"${TAG}\"" /tmp/pluginInfo.remote.json
-          grep -F "Ships agent ${TAG}" /tmp/pluginInfo.remote.json
+          # raw.githubusercontent.com can lag behind git push; poll then fall back to the GitHub API.
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            sleep 5
+            body="$(curl -fsSL "https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json")"
+            if grep -F "\"agentVersion\": \"${TAG}\"" <<<"$body" && grep -F "Ships agent ${TAG}" <<<"$body"; then
+              echo "raw pluginInfo.json reflects ${TAG} (attempt ${attempt})"
+              exit 0
+            fi
+            echo "raw.githubusercontent.com still stale (attempt ${attempt})"
+          done
+          echo "raw.githubusercontent.com did not refresh; verifying via GitHub API contents endpoint"
+          python3 - "$TAG" <<'PY'
+          import base64, json, sys, urllib.request
+          tag = sys.argv[1]
+          url = "https://api.github.com/repos/showops-io/fpp-plugin-showops-agent/contents/pluginInfo.json?ref=main"
+          with urllib.request.urlopen(url) as resp:
+              payload = json.load(resp)
+          text = base64.b64decode(payload["content"]).decode("utf-8")
+          if f'"agentVersion": "{tag}"' not in text or f"Ships agent {tag}" not in text:
+              print(f"pluginInfo on main missing stamp for {tag}", file=sys.stderr)
+              sys.exit(1)
+          print(f"GitHub API confirms pluginInfo on main has {tag}")
+          PY
