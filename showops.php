@@ -205,7 +205,7 @@ function resolve_agent_release_version() {
       return (string)$data['version'];
     }
   }
-  return 'v1.2.69';
+  return 'v1.2.70';
 }
 
 /**
