@@ -22,7 +22,7 @@ LEGACY_BIN_LINK="/usr/local/bin/fpp-monitor-agent"
 
 # Fallback version used only when the ShowOps manifest and GitHub API are both unreachable.
 # Update this whenever a new stable release ships.
-DEFAULT_RELEASE_VERSION="v1.2.71"
+DEFAULT_RELEASE_VERSION="v1.2.72"
 RELEASE_VERSION="${RELEASE_VERSION:-}"
 AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-showops-io}"
 AGENT_REPO_NAME="${AGENT_REPO_NAME:-fpp-agent-monitor}"

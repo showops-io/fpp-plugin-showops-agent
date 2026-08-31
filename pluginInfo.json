@@ -2,7 +2,7 @@
   "repoName": "fpp-plugin-showops-agent",
   "name": "ShowOps Agent",
   "author": "ShowOps",
-  "description": "Outbound-only ShowOps monitoring agent for FPP (Raspberry Pi, BeagleBone, Armbian, and Debian ARM boards). Ships agent v1.2.71.",
+  "description": "Outbound-only ShowOps monitoring agent for FPP (Raspberry Pi, BeagleBone, Armbian, and Debian ARM boards). Ships agent v1.2.72.",
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
@@ -73,5 +73,5 @@
       ]
     }
   ],
-  "agentVersion": "v1.2.71"
+  "agentVersion": "v1.2.72"
 }
