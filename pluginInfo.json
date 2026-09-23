@@ -79,7 +79,7 @@
       },
       {
         "kind": "privilege",
-        "what": "Uses passwordless sudo only to stop fppd before an FPP version upgrade"
+        "what": "Restarts the ShowOps service with FPP's sudo helper. Stops fppd through FPP's API"
       }
     ],
     "closedCode": true,
