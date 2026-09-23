@@ -240,15 +240,6 @@ else
   rm -rf "$tmp_dir"
 fi
 
-# Self-update runs as User=fpp; keep plugin bin + downloads writable.
-if ! is_dry_run && [[ -d "$INSTALL_DIR" ]]; then
-  DOWNLOADS_DIR="$INSTALL_DIR/downloads"
-  ensure_dir "$DOWNLOADS_DIR"
-  if can_privileged; then
-    run_privileged chown -R fpp:fpp "$INSTALL_DIR" || true
-  fi
-fi
-
 # Migrate legacy config into plugindata (FPP-preferred location).
 ensure_dir "$PLUGINDATA_DIR"
 if [[ ! -f "$CONFIG_PATH" && -f "$LEGACY_CONFIG_PATH" ]]; then
@@ -261,7 +252,7 @@ if [[ ! -f "$CONFIG_PATH" && -f "$LEGACY_CONFIG_PATH" ]]; then
   fi
 fi
 
-restore_enrollment_config "$CONFIG_PATH"
+migrate_legacy_enrollment_stash "$CONFIG_PATH"
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
   log "Writing default config to $CONFIG_PATH"
@@ -286,12 +277,32 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
   "heartbeat_interval_sec": 60,
   "command_poll_interval_sec": 30,
   "reboot_enabled": false,
-  "restart_fpp_command": ""
+  "backup_enabled": false,
+  "location_enabled": false,
+  "fpp_collect_enabled": false,
+  "update": {"enabled": false, "channel": "stable", "allow_downgrade": false}
 }
 JSON
   fi
 else
-  log "Config exists; leaving $CONFIG_PATH unchanged"
+  log "Config exists; applying catalog defaults without wiping pairing"
+  if ! is_dry_run; then
+    php -r '
+      $path = $argv[1];
+      $data = json_decode(file_get_contents($path), true);
+      if (!is_array($data)) { fwrite(STDERR, "config is not a JSON object\n"); exit(1); }
+      if (!array_key_exists("fpp_collect_enabled", $data)) { $data["fpp_collect_enabled"] = true; }
+      if (!array_key_exists("location_enabled", $data)) { $data["location_enabled"] = true; }
+      if (!array_key_exists("backup_enabled", $data)) { $data["backup_enabled"] = false; }
+      if (!array_key_exists("reboot_enabled", $data)) { $data["reboot_enabled"] = false; }
+      $update = (isset($data["update"]) && is_array($data["update"])) ? $data["update"] : array();
+      $update["enabled"] = false;
+      if (!isset($update["channel"])) { $update["channel"] = "stable"; }
+      if (!isset($update["allow_downgrade"])) { $update["allow_downgrade"] = false; }
+      $data["update"] = $update;
+      file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    ' "$CONFIG_PATH"
+  fi
 fi
 
 if is_dry_run; then
@@ -334,73 +345,38 @@ elif [[ -f "$REPO_ROOT/system/fpp-monitor-agent.sh" ]]; then
   run_cmd install -m 0755 "$REPO_ROOT/system/fpp-monitor-agent.sh" "$FALLBACK_SCRIPT" || true
 fi
 
-start_fallback_runner() {
-  if is_dry_run; then
-    log "DRY_RUN: would start fallback runner $FALLBACK_SCRIPT"
-    return 0
-  fi
-  if [[ ! -x "$FALLBACK_SCRIPT" && -f "$FALLBACK_SCRIPT" ]]; then
-    chmod 0755 "$FALLBACK_SCRIPT" || true
-  fi
-  if [[ -x "$BIN_PATH" ]]; then
-    nohup "$BIN_PATH" --config "$CONFIG_PATH" >>"$LOG_FILE" 2>&1 &
-    return 0
-  fi
-  if [[ -x "$FALLBACK_SCRIPT" ]]; then
-    nohup "$FALLBACK_SCRIPT" >/dev/null 2>&1 &
-  fi
-}
+if ! is_systemd; then
+  log "Systemd is required. FPP images provide it; refusing to start the agent as root."
+  exit 1
+fi
 
-# From here on, the binary is installed. Do not fail the FPP plugin install for
-# systemd/crontab issues — ShowOps UI can still start the agent.
-set +e
-
-if is_systemd; then
-  log "Installing systemd service"
-  if can_privileged; then
-    if is_dry_run; then
-      log "DRY_RUN: would install $GENERATED_UNIT to /etc/systemd/system/fpp-monitor-agent.service"
-    else
-      run_privileged install -m 0644 "$GENERATED_UNIT" /etc/systemd/system/fpp-monitor-agent.service
-    fi
-    run_privileged systemctl daemon-reload || log "WARNING: systemctl daemon-reload failed"
-    run_privileged systemctl enable fpp-monitor-agent.service || log "WARNING: systemctl enable failed"
-    restart_output=""
-    restart_code=0
-    if is_dry_run; then
-      log "DRY_RUN: systemctl restart fpp-monitor-agent.service"
-    else
-      restart_output="$(run_privileged systemctl restart fpp-monitor-agent.service 2>&1)"
-      restart_code=$?
-    fi
-    if [[ $restart_code -eq 0 ]] || is_dry_run; then
-      run_privileged systemctl --no-pager --full status fpp-monitor-agent.service || true
-    else
-      if [[ -n "$restart_output" ]]; then
-        log "Systemd restart failed: $restart_output"
-      else
-        log "Systemd restart failed with exit code $restart_code"
-      fi
-      log "Falling back to direct agent start"
-      start_fallback_runner
-    fi
-  else
-    log "Systemd present but cannot write /etc/systemd (not root). Using fallback runner."
-    log "To enable systemd later: install -m 0644 $GENERATED_UNIT /etc/systemd/system/fpp-monitor-agent.service && systemctl daemon-reload && systemctl enable --now fpp-monitor-agent.service"
-    start_fallback_runner
-  fi
+log "Installing systemd service"
+if ! can_privileged; then
+  log "Cannot write /etc/systemd (not root). Reinstall the plugin from FPP Plugin Manager."
+  exit 1
+fi
+if is_dry_run; then
+  log "DRY_RUN: would install $GENERATED_UNIT to /etc/systemd/system/fpp-monitor-agent.service"
+  log "DRY_RUN: systemctl restart fpp-monitor-agent.service"
 else
-  log "Systemd not detected; installing fallback runner"
-  start_fallback_runner
-  if have_command crontab; then
-    log "Registering fallback runner at boot via crontab"
-    if is_dry_run; then
-      log "DRY_RUN: would add @reboot $FALLBACK_SCRIPT to crontab"
-    else
-      (crontab -l 2>/dev/null | grep -v "fpp-monitor-agent.sh" ; echo "@reboot $FALLBACK_SCRIPT") | crontab - || log "WARNING: crontab update failed"
-    fi
+  run_privileged install -m 0644 "$GENERATED_UNIT" /etc/systemd/system/fpp-monitor-agent.service
+  run_privileged systemctl daemon-reload
+  run_privileged systemctl enable fpp-monitor-agent.service
+  # Restart after this script returns. Update Agent in ShowOps calls FPP's
+  # plugin upgrade from the agent process; systemctl restart inside that
+  # request deadlocks, because systemd waits for the agent and the agent
+  # waits for this script.
+  restart_unit="showops-agent-restart-$(date +%s)"
+  systemctl_bin="$(command -v systemctl)"
+  if run_privileged systemd-run --collect --unit="$restart_unit" --on-active=5s --timer-property=AccuracySec=1s "$systemctl_bin" restart fpp-monitor-agent.service; then
+    log "Scheduled agent restart in 5s ($restart_unit)"
   else
-    log "crontab not available; fallback runner will not be auto-started"
+    log "systemd-run failed; restarting immediately"
+    if ! restart_output="$(run_privileged systemctl restart fpp-monitor-agent.service 2>&1)"; then
+      log "Systemd restart failed: $restart_output"
+      exit 1
+    fi
+    run_privileged systemctl --no-pager --full status fpp-monitor-agent.service || true
   fi
 fi
 

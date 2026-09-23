@@ -5,8 +5,8 @@
 # FPP 10 only: PluginHasUpdates() invokes scripts/fpp_update_check.sh when the
 # plugin git tree has no unpulled commits. On FPP 7/8/9, PluginHasUpdates() is
 # git-log-only and never runs this script — the FPP Plugins-page badge will not
-# light for agent-only releases there. ShowOps in-app "Update Agent" works on
-# all supported FPP versions.
+# light for agent-only releases there. ShowOps "Update Agent" asks FPP to run
+# this plugin's install script, which downloads the newest agent.
 #
 # Contract (FPP www/api/controllers/plugin.php, FPP 10+):
 #   exit 0 and print "1" as the final stdout line to report an update available.
@@ -25,6 +25,7 @@ SHOWOPS_API_BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
 # reaching across the WAN each time.
 CACHE_FILE="${SHOWOPS_UPDATE_CHECK_CACHE:-/home/fpp/media/tmp/showops-agent-update-check}"
 CACHE_TTL_SEC="${SHOWOPS_UPDATE_CHECK_TTL_SEC:-900}"
+FAIL_TTL_SEC="${SHOWOPS_UPDATE_CHECK_FAIL_TTL_SEC:-120}"
 HTTP_TIMEOUT_SEC="${SHOWOPS_UPDATE_CHECK_TIMEOUT_SEC:-4}"
 USER_AGENT="fpp-plugin-showops-agent"
 
@@ -70,28 +71,14 @@ json_string_field() {
 resolve_latest_version() {
   local body version
 
+  # One request. Extra GitHub fallbacks made an offline Plugins page wait
+  # through three sequential timeouts.
   body="$(fetch_url "${SHOWOPS_API_BASE}/v1/agent/releases/latest")" || body=""
   version="$(json_string_field version "$body")"
   if [[ -n "$version" ]]; then
     printf '%s\n' "$version"
     return 0
   fi
-
-  # Dual-publish fallback (remove after ShowOps channel is sole source of truth).
-  body="$(fetch_url "https://raw.githubusercontent.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/main/latest.json")" || body=""
-  version="$(json_string_field version "$body")"
-  if [[ -n "$version" ]]; then
-    printf '%s\n' "$version"
-    return 0
-  fi
-
-  body="$(fetch_url "https://api.github.com/repos/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/releases/latest")" || body=""
-  version="$(json_string_field tag_name "$body")"
-  if [[ -n "$version" ]]; then
-    printf '%s\n' "$version"
-    return 0
-  fi
-
   return 1
 }
 
@@ -106,12 +93,18 @@ file_age_sec() {
 # Cached against the installed version, so an upgrade invalidates the entry
 # instead of leaving the badge lit until the TTL expires.
 read_cached_latest() {
-  local installed="$1" age cached_installed cached_latest
+  local installed="$1" age cached_installed cached_latest ttl
   [[ -r "$CACHE_FILE" ]] || return 1
   age="$(file_age_sec "$CACHE_FILE")" || return 1
-  [[ "$age" -ge 0 && "$age" -lt "$CACHE_TTL_SEC" ]] || return 1
+  [[ "$age" -ge 0 ]] || return 1
   IFS=' ' read -r cached_installed cached_latest <"$CACHE_FILE" || return 1
   [[ "$cached_installed" == "$installed" && -n "$cached_latest" ]] || return 1
+  if [[ "$cached_latest" == "-" ]]; then
+    ttl="$FAIL_TTL_SEC"
+  else
+    ttl="$CACHE_TTL_SEC"
+  fi
+  [[ "$age" -lt "$ttl" ]] || return 1
   printf '%s\n' "$cached_latest"
 }
 
@@ -166,11 +159,16 @@ main() {
   if [[ -z "$latest" ]]; then
     latest="$(resolve_latest_version)" || latest=""
     if [[ -z "$latest" ]]; then
-      note "could not resolve the latest release; reporting no update"
+      note "could not resolve the latest release; caching the failure"
+      write_cache "$installed" "-"
       echo 0
       return 0
     fi
     write_cache "$installed" "$latest"
+  fi
+  if [[ "$latest" == "-" ]]; then
+    echo 0
+    return 0
   fi
 
   if [[ "$(version_is_older "$installed" "$latest")" == "1" ]]; then

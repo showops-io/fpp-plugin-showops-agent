@@ -24,7 +24,7 @@ Breaking changes to paths, config semantics, or plugin UI actions require **bump
 | Systemd unit | `fpp-monitor-agent.service` (file under `/etc/systemd/system/` or `/lib/systemd/system/`) | Installer (paths substituted at install) |
 | Release tag file | `{plugin root}/bin/VERSION` | Installer |
 | Plugin log | `/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log` | Installer / wrapper / uninstaller (append; FPP rotates) |
-| Enrollment stash | `/home/fpp/media/config/showops-agent-enrollment.json` | Copy of user config taken on uninstall; restored on the next install if plugindata config is missing. Deleted only by Unpair in the plugin UI. |
+| Pairing config | `plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json` | Kept across uninstall so a Plugin Manager reinstall does not drop pairing. Unpair clears the device token. A legacy copy under `media/config/showops-agent-enrollment.json` is moved into plugindata on the next install and then deleted. |
 
 **Legacy (migrated or cleaned on install/uninstall):** `/home/fpp/media/config/fpp-monitor-agent.json`, `/opt/fpp-monitor-agent/`, `/var/lib/fpp-monitor-agent/`, and old plugin dirs `showops-agent` / `fpp-monitor-agent`.
 
@@ -49,7 +49,7 @@ The **authoritative field list** for operators is in the root [README](../README
 
 ### Uninstall (full cleanup)
 
-Uninstall **deletes** plugindata (`fpp-monitor-agent.json`), the systemd unit, `{plugin root}/bin/`, legacy `/opt` + `/var/lib` + `media/config/fpp-monitor-agent.json`, and related symlinks/crontab entries. Before deleting plugindata it copies the config to the enrollment stash so FPP Plugin Manager **Reinstall All** (required after an FPPOS upgrade) can restore pairing. Tracked plugin sources (wrapper, PHP) remain until FPP removes the plugin directory. Reinstall restores the stash when present; otherwise it writes a fresh default config. Explicit Unpair in `showops.php` deletes the stash.
+Uninstall removes the systemd unit, `{plugin root}/bin/`, legacy `/opt` + `/var/lib`, and any root crontab left by older installs. It leaves the plugindata config in place so pairing survives Plugin Manager reinstall. It deletes a legacy `media/config/showops-agent-enrollment.json` if one is still there. Explicit Unpair clears the device token. The plugin page does not download the agent; Plugin Manager runs `fpp_install.sh`.
 
 Default `restart_fpp_command` is **empty**. Prefer FPP’s `restartFlag` over shelling `systemctl restart fpp` (PLUGIN_GUIDELINES.md §3.6 / §4.1).
 
@@ -71,10 +71,10 @@ Environment variable **`FPP_MONITOR_INSTALL_RUN_ID`** is exported for the script
 
 | Value | Behavior |
 |-------|----------|
-| `pair` | Set pairing flags in config; install agent if needed; restart agent |
-| `unpair` | Request unpair; restart agent |
-| `restart` | Restart agent service / fallback runner |
-| `install` | Download agent binary into plugin `bin/` from ShowOps release channel |
+| `pair` | Save a short-lived pairing code and restart the agent |
+| `unpair` | Clear the local device token |
+| `restart` | `systemctl restart` the agent unit |
+| `settings` | Save backup, location, diagnostics, and reboot switches, then restart the agent |
 | `tail` | Refresh log snippet in UI |
 
 CI asserts these five actions exist in `showops.php`. New actions require a contract bump and a fingerprint update.
@@ -139,7 +139,7 @@ FPP's `PluginHasUpdates()` decides whether to show "update available" by looking
 - print `0` for every other outcome, including no binary installed and no network — FPP treats a non-zero exit or any other final line as "no update"
 - keep diagnostics on **stderr**; FPP reads only the last stdout line
 
-Latest-version resolution matches `api.php`: the `latest.json` manifest first, then the GitHub releases API. Results are cached for 15 minutes at `/home/fpp/media/tmp/showops-agent-update-check` (keyed by installed version, so an upgrade invalidates it) because FPP runs the check on every Plugins page render.
+Latest-version resolution asks `api.showops.io` once. A successful answer is cached for 15 minutes and a failure for 2 minutes at `/home/fpp/media/tmp/showops-agent-update-check` (keyed by installed version) because FPP runs the check on every Plugins page render.
 
 Applying the update needs nothing extra here — FPP's `upgrade_plugin` runs `scripts/fpp_install.sh` after the no-op `git pull`, and that installs the newest release without overwriting an existing config.
 

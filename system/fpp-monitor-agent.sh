@@ -29,16 +29,12 @@ fi
 export FPP_MONITOR_AGENT_CONFIG="$CONFIG_PATH"
 export SHOWOPS_CONFIG_PATH="$CONFIG_PATH"
 
-# Append to the FPP-managed plugin log (PLUGIN_GUIDELINES.md §1).
-# Do not abort if the preferred log is not writable (common for web-user starts).
-set +e
-mkdir -p "$(dirname "$CONFIG_PATH")" "$(dirname "$LOG_FILE")" 2>/dev/null
-if ! touch "$LOG_FILE" 2>/dev/null; then
-  LOG_FILE="${PLUGIN_DIR}/bin/agent-runtime.log"
-  mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
-  touch "$LOG_FILE" 2>/dev/null || true
+# One FPP-managed log. The agent reopens it on SIGHUP and when the inode changes.
+mkdir -p "$(dirname "$CONFIG_PATH")" "$(dirname "$LOG_FILE")"
+if ! touch "$LOG_FILE"; then
+  echo "fpp-monitor-agent cannot write $LOG_FILE" >&2
+  exit 1
 fi
-set -e
 
-exec >>"$LOG_FILE" 2>&1
+export FPP_MONITOR_AGENT_LOG="$LOG_FILE"
 exec "$BIN_PATH" --config "$CONFIG_PATH"

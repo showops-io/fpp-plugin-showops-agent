@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.5.6",
+  "contractVersion": "1.6.0",
   "description": "Machine-readable checks for docs/PLUGIN_API_CONTRACT.md. CI fails if plugin paths or UI POST actions drift without updating the contract.",
   "frozenPaths": {
     "userConfigFile": "/home/fpp/media/plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json",
@@ -10,14 +10,14 @@
     "pluginAgentBinary": "/home/fpp/media/plugins/fpp-plugin-showops-agent/bin/fpp-monitor-agent",
     "legacyOptAgentBinary": "/opt/fpp-monitor-agent/fpp-monitor-agent",
     "pluginLogFile": "/home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log",
-    "enrollmentStashFile": "/home/fpp/media/config/showops-agent-enrollment.json"
+    "legacyEnrollmentStashFile": "/home/fpp/media/config/showops-agent-enrollment.json"
   },
   "pluginUiPostActions": [
     "pair",
     "unpair",
     "restart",
     "tail",
-    "install"
+    "settings"
   ],
   "fileAssertions": [
     {
@@ -31,7 +31,7 @@
         "action === 'unpair'",
         "action === 'restart'",
         "action === 'tail'",
-        "action === 'install'",
+        "action === 'settings'",
         "showops-agent-enrollment.json",
         "delete_enrollment_stash"
       ]
@@ -44,9 +44,9 @@
         "fpp-monitor-agent.json",
         "fpp-monitor-agent.service",
         "log_install_session_start",
-        "\"restart_fpp_command\": \"\"",
+        "\"backup_enabled\": false",
         "$2 == name",
-        "restore_enrollment_config"
+        "migrate_legacy_enrollment_stash"
       ]
     },
     {
@@ -73,7 +73,7 @@
         "PLUGINDATA_DIR",
         "/var/lib/fpp-monitor-agent",
         "Uninstall complete",
-        "stash_enrollment_config"
+        "delete_legacy_enrollment_stash"
       ]
     },
     {

@@ -51,6 +51,7 @@ for legacy in "${LEGACY_PLUGIN_DIRS[@]}"; do
   run_cmd rm -rf "$legacy/bin" || true
 done
 
+# Drop a root crontab left by older installs. New installs do not add one.
 if have_command crontab; then
   if is_dry_run; then
     log "DRY_RUN: would remove crontab entry for fpp-monitor-agent.sh"
@@ -59,20 +60,12 @@ if have_command crontab; then
   fi
 fi
 
-# PLUGIN_GUIDELINES.md §2.1: remove plugindata + any legacy config.
-# Stash enrollment first so FPP "Reinstall All" after FPPOS can restore pairing.
-if [[ -f "$CONFIG_PATH" ]]; then
-  stash_enrollment_config "$CONFIG_PATH"
-elif [[ -f "$LEGACY_CONFIG_PATH" ]]; then
-  stash_enrollment_config "$LEGACY_CONFIG_PATH"
+# Leave plugindata in place so pairing survives FPP Plugin Manager reinstall.
+# Unpair in the plugin UI is what clears the device token.
+delete_legacy_enrollment_stash
+if [[ -f "$LEGACY_CONFIG_PATH" && ! -f "$CONFIG_PATH" ]]; then
+  log "Legacy config remains at $LEGACY_CONFIG_PATH; next install migrates it into plugindata"
 fi
-if is_dry_run; then
-  log "DRY_RUN: would remove config $CONFIG_PATH and $LEGACY_CONFIG_PATH"
-  log "DRY_RUN: would remove plugindata dir $PLUGINDATA_DIR"
-else
-  run_cmd rm -f "$CONFIG_PATH" "$LEGACY_CONFIG_PATH" || true
-  run_cmd rm -rf "$PLUGINDATA_DIR" || true
-  log "Removed agent config and plugindata"
-fi
+log "Left pairing config in plugindata (removed only by Unpair)"
 
 log "Uninstall complete"
