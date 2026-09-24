@@ -36,7 +36,8 @@ jobs:
 
   dry-run-install:
     name: Dry-Run Install
-    runs-on: ubuntu-latest
+    # The installer only supports ARM FPP boards, so dry-run it on ARM.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
@@ -55,6 +56,22 @@ jobs:
 
       - name: Smoke test — detect_platform.sh runs without error
         run: bash scripts/detect_platform.sh
+
+  refuses-x86:
+    name: Refuses x86
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: detect_platform.sh and fpp_install.sh refuse x86_64
+        run: |
+          set -uo pipefail
+          if bash scripts/detect_platform.sh; then
+            echo "detect_platform.sh accepted $(uname -m)"; exit 1
+          fi
+          if DRY_RUN=1 bash scripts/fpp_install.sh; then
+            echo "fpp_install.sh accepted $(uname -m)"; exit 1
+          fi
 
   dry-run-uninstall:
     name: Dry-Run Uninstall
@@ -104,7 +121,7 @@ jobs:
           root="$(mktemp -d)"
           mkdir -p "$root/bin"
           echo v0.0.1 > "$root/bin/VERSION"
-          out="$(AGENT_REPO_NAME=showops-no-such-repo SHOWOPS_UPDATE_CHECK_TIMEOUT_SEC=3 \
+          out="$(SHOWOPS_API_BASE=http://127.0.0.1:9 SHOWOPS_UPDATE_CHECK_TIMEOUT_SEC=3 \
             SHOWOPS_PLUGIN_DIR="$root" SHOWOPS_UPDATE_CHECK_CACHE="$root/cache" ./scripts/fpp_update_check.sh)"
           [ "$out" = "0" ] || { echo "expected 0, got '$out'"; exit 1; }
 
@@ -126,8 +143,8 @@ jobs:
       - name: Install PHP CLI
         run: sudo apt-get update -qq && sudo apt-get install -y php-cli
 
-      - name: Lint www/showops.php
-        run: php -l www/showops.php
+      - name: Lint showops.php and www/showops.php
+        run: php -l showops.php && php -l www/showops.php
 
   secret-scan:
     name: Secret Scanning
