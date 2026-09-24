@@ -2,7 +2,7 @@
   "repoName": "fpp-plugin-showops-agent",
   "name": "ShowOps Agent",
   "author": "ShowOps",
-  "description": "Connects this FPP player to your ShowOps account at api.showops.io for monitoring and remote management. When you enable them, ShowOps can ask the agent to set FPP's restart or reboot banner, upgrade FPP or the OS, restore configuration, change playlists and schedules, and upload configuration and log archives with passwords removed. Remote support can open a Cloudflare Tunnel to this player's FPP web UI (cloudflared is fetched from github.com and pinned). The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi and BeagleBone (ARM) only.",
+  "description": "Connects this FPP player to your ShowOps account at api.showops.io for monitoring and remote management. On instruction from ShowOps the agent can set FPP's restart banner, upgrade FPP or the OS, change playlists and schedules, and open a remote support session through a Cloudflare Tunnel to this player's FPP web UI (cloudflared is fetched from github.com and pinned). Diagnostics, map location, configuration backup and restore (passwords removed), and the reboot banner stay off until you turn them on in the plugin page. The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi and BeagleBone (ARM) only.",
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
@@ -12,17 +12,17 @@
   "minMemoryMB": 512,
   "minCpuCores": 1,
   "privacy": {
-    "summary": "Connects this player to your ShowOps account for monitoring. Backups, location, diagnostics, and remote support stay off until you turn them on.",
+    "summary": "Monitoring is always on. Diagnostics, location, backups and the reboot banner stay off until you turn them on. ShowOps can start upgrades, playlist changes and remote support.",
     "sends": [
       {
         "to": "api.showops.io",
-        "what": "player name, FPP version, playback, and disk and CPU use",
-        "why": "to show this player in your ShowOps account",
+        "what": "hostname, FPP, OS and agent version, board, playback, next show time, CPU, memory and disk use",
+        "why": "to show this player's status in your ShowOps account",
         "alwaysOn": true
       },
       {
         "to": "api.showops.io",
-        "what": "a hash of this player's machine id and MAC addresses",
+        "what": "hostname and a hash of this player's machine id and MAC addresses (a hardware identifier)",
         "why": "to recognize this player when you pair it",
         "alwaysOn": false
       },
@@ -34,7 +34,7 @@
       },
       {
         "to": "api.showops.io",
-        "what": "installed plugins, network details, and FPP logs",
+        "what": "installed plugins, network details, FPP system status and logs",
         "why": "to troubleshoot this player when you enable diagnostics",
         "alwaysOn": false
       },
@@ -42,6 +42,12 @@
         "to": "api.showops.io",
         "what": "a configuration backup with passwords removed",
         "why": "to restore this player when you enable backups",
+        "alwaysOn": false
+      },
+      {
+        "to": "Cloudflare Tunnel (argotunnel.com)",
+        "what": "this player's FPP web pages during a remote support session",
+        "why": "so the helper signed in to ShowOps can open FPP remotely",
         "alwaysOn": false
       }
     ],
@@ -59,11 +65,15 @@
     "systemChanges": [
       {
         "kind": "service",
-        "what": "Runs the ShowOps agent as the fpp user via systemd"
+        "what": "Installs and enables the fpp-monitor-agent systemd service, run as the fpp user"
       },
       {
         "kind": "download",
-        "what": "Plugin install downloads the closed-source agent and pinned cloudflared"
+        "what": "Install and Update fetch the closed-source agent from api.showops.io (GitHub fallback), SHA-256 checked"
+      },
+      {
+        "kind": "download",
+        "what": "For remote support the agent fetches pinned cloudflared 2024.8.3 from github.com"
       },
       {
         "kind": "tunnel",
@@ -71,11 +81,19 @@
       },
       {
         "kind": "core-settings",
-        "what": "Can set FPP restart and reboot banners, playlists, and upgrades when you confirm"
+        "what": "On request sets FPP's restart and reboot banners, upgrades FPP or the OS, edits playlists and schedules"
+      },
+      {
+        "kind": "core-settings",
+        "what": "Restores a ShowOps configuration backup onto this player, only when backups are turned on"
       },
       {
         "kind": "reads-core-credentials",
-        "what": "Backup reads FPP settings and removes passwords before anything is uploaded"
+        "what": "Backup reads FPP settings and blanks password, token, key, secret and pass fields before upload"
+      },
+      {
+        "kind": "network",
+        "what": "Probes LAN hosts and ports only if listed in network_allowlist, which is empty by default"
       },
       {
         "kind": "privilege",
@@ -83,7 +101,7 @@
       }
     ],
     "closedCode": true,
-    "other": "Pair only on a trusted network. Pairing credentials stay in plugindata until Unpair. The agent does not replace its own binary. Remote support is signed in through ShowOps, opened from the cloud, and idle-limited. cloudflared stays on the pinned 2024.8.3 build. A session can reach another LAN host only when that host is on the player's allowlist."
+    "other": "Pair only on a trusted network. Pairing credentials stay in plugindata until Unpair. The agent does not replace its own binary; Update in Plugin Manager installs new agents. ShowOps can ask FPP to upgrade this plugin through FPP's own plugin upgrade. Remote support is signed in through ShowOps, opened from the cloud, and idle-limited. cloudflared stays on the pinned 2024.8.3 build. A session can reach another LAN host only when that host is on the player's allowlist."
   },
   "versions": [
     {
@@ -95,8 +113,7 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64",
-        "Armbian"
+        "BeagleBone 64"
       ]
     },
     {
@@ -108,8 +125,7 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64",
-        "Armbian"
+        "BeagleBone 64"
       ]
     },
     {
@@ -121,8 +137,7 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64",
-        "Armbian"
+        "BeagleBone 64"
       ]
     },
     {
@@ -134,8 +149,7 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64",
-        "Armbian"
+        "BeagleBone 64"
       ]
     }
   ]
