@@ -1,6 +1,6 @@
 # ShowOps Agent Plugin
 
-Outbound-only ShowOps monitoring agent for Falcon Player (FPP).
+Connects a Falcon Player (FPP) to your ShowOps account for monitoring and remote management. `pluginInfo.json` (`description` and `privacy`) lists what the agent sends and what ShowOps can ask it to do.
 
 For operator install steps, use **ShowOps → Getting Started**. This README is a short reference for the plugin repo.
 
@@ -43,7 +43,8 @@ tail -n 100 /home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log
 bash /home/fpp/media/plugins/fpp-plugin-showops-agent/scripts/fpp_uninstall.sh
 ```
 
-Removes the agent binary, systemd unit, plugindata config, and legacy `/opt` paths. Enrollment is copied to `/home/fpp/media/config/showops-agent-enrollment.json` first so FPP **Reinstall All** after an OS upgrade can restore pairing. Explicit Unpair in the plugin UI deletes that stash. Reinstall restores the stash when present; otherwise it writes a fresh config.
+Removes the agent binary, systemd unit, the agent's `media/tmp` files, and legacy `/opt` and `/var/lib` paths. The `0600` config in `plugindata/` stays, so pairing survives an FPP **Reinstall All** after an OS upgrade; **Unpair** in the plugin UI clears it. Nothing is copied into `media/config/`, and a `showops-agent-enrollment.json` left there by older versions is deleted.
+
 ## Engineers
 
 - Agent binary repo: [fpp-agent-monitor](https://github.com/showops-io/fpp-agent-monitor)
