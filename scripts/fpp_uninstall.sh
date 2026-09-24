@@ -46,6 +46,11 @@ fi
 run_cmd rm -f "$BIN_PATH_PLUGIN" || true
 run_cmd rm -rf "$PLUGIN_DIR/bin" || true
 
+# The agent probes a download dir under media/tmp at startup; the Plugins page
+# update check caches its answer there too.
+run_cmd rm -rf "${MEDIADIR}/tmp/fpp-monitor-agent" || true
+run_cmd rm -f "${MEDIADIR}/tmp/showops-agent-update-check" || true
+
 for legacy in "${LEGACY_PLUGIN_DIRS[@]}"; do
   run_cmd rm -f "$legacy/bin/fpp-monitor-agent" || true
   run_cmd rm -rf "$legacy/bin" || true

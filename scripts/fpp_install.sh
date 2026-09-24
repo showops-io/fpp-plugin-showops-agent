@@ -241,7 +241,9 @@ else
 fi
 
 # Migrate legacy config into plugindata (FPP-preferred location).
-ensure_dir "$PLUGINDATA_DIR"
+if ! is_dry_run; then
+  ensure_dir "$PLUGINDATA_DIR"
+fi
 if [[ ! -f "$CONFIG_PATH" && -f "$LEGACY_CONFIG_PATH" ]]; then
   log "Migrating config from $LEGACY_CONFIG_PATH to $CONFIG_PATH"
   if is_dry_run; then
@@ -291,8 +293,8 @@ else
       $path = $argv[1];
       $data = json_decode(file_get_contents($path), true);
       if (!is_array($data)) { fwrite(STDERR, "config is not a JSON object\n"); exit(1); }
-      if (!array_key_exists("fpp_collect_enabled", $data)) { $data["fpp_collect_enabled"] = true; }
-      if (!array_key_exists("location_enabled", $data)) { $data["location_enabled"] = true; }
+      if (!array_key_exists("fpp_collect_enabled", $data)) { $data["fpp_collect_enabled"] = false; }
+      if (!array_key_exists("location_enabled", $data)) { $data["location_enabled"] = false; }
       if (!array_key_exists("backup_enabled", $data)) { $data["backup_enabled"] = false; }
       if (!array_key_exists("reboot_enabled", $data)) { $data["reboot_enabled"] = false; }
       $update = (isset($data["update"]) && is_array($data["update"])) ? $data["update"] : array();

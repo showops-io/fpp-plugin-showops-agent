@@ -46,12 +46,13 @@ The **authoritative field list** for operators is in the root [README](../README
 **Encoding:** UTF-8 JSON object. Pretty-print is optional.
 
 **Install / reinstall:** The installer writes the **full** default schema on first install and must **never** overwrite an existing file on reinstall.
+On reinstall or Update it only adds missing opt-in keys (`fpp_collect_enabled`, `location_enabled`, `backup_enabled`, `reboot_enabled`), each as `false`, and forces `update.enabled` to `false`.
 
 ### Uninstall (full cleanup)
 
-Uninstall removes the systemd unit, `{plugin root}/bin/`, legacy `/opt` + `/var/lib`, and any root crontab left by older installs. It leaves the plugindata config in place so pairing survives Plugin Manager reinstall. It deletes a legacy `media/config/showops-agent-enrollment.json` if one is still there. Explicit Unpair clears the device token. The plugin page does not download the agent; Plugin Manager runs `fpp_install.sh`.
+Uninstall removes the systemd unit, `{plugin root}/bin/`, `media/tmp/fpp-monitor-agent` and the update-check cache, legacy `/opt` + `/var/lib`, and any root crontab left by older installs. It leaves the plugindata config in place so pairing survives Plugin Manager reinstall. It deletes a legacy `media/config/showops-agent-enrollment.json` if one is still there. Explicit Unpair clears the device token. The plugin page does not download the agent; Plugin Manager runs `fpp_install.sh`.
 
-Default `restart_fpp_command` is **empty**. Prefer FPP’s `restartFlag` over shelling `systemctl restart fpp` (PLUGIN_GUIDELINES.md §3.6 / §4.1).
+The agent no longer reads `restart_fpp_command`. Restart and reboot requests only set FPP’s `restartFlag` / `rebootFlag` (PLUGIN_GUIDELINES.md §3.6 / §4.1).
 
 ### Install / uninstall session correlation
 
