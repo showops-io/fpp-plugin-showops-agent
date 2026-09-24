@@ -10,7 +10,8 @@ Use these **exact** check names when requiring checks for `main` (verify on a re
 | --- | --- | --- |
 | `ShellCheck` | [CI](.github/workflows/ci.yml) | Scripts under `scripts/` and `system/` |
 | `Plugin API contract` | [CI](.github/workflows/ci.yml) | Frozen paths / plugin UI surface |
-| `Dry-Run Install` | [CI](.github/workflows/ci.yml) | Install script smoke (dry-run) |
+| `Dry-Run Install` | [CI](.github/workflows/ci.yml) | Install script smoke (dry-run, arm64 runner) |
+| `Refuses x86` | [CI](.github/workflows/ci.yml) | Installer rejects x86_64 |
 | `Dry-Run Uninstall` | [CI](.github/workflows/ci.yml) | Uninstall script smoke (dry-run) |
 | `Validate JSON` | [CI](.github/workflows/ci.yml) | `pluginInfo.json` |
 
