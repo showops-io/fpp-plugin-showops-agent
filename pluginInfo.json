@@ -12,7 +12,7 @@
   "minMemoryMB": 512,
   "minCpuCores": 1,
   "privacy": {
-    "summary": "Monitoring is always on. Diagnostics, location, backups and the reboot banner stay off until you turn them on. ShowOps can start upgrades, playlist changes and remote support.",
+    "summary": "ShowOps watches this player and alerts you when the show does not start. Song, playlist, position, and volume go to your ShowOps account only while that player's page is open. Playback changes, and a private connection to this player's FPP pages, happen only when you ask. Diagnostics, location, backups, and the reboot banner stay off until you turn them on here.",
     "sends": [
       {
         "to": "api.showops.io",
