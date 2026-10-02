@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Stamp the current ShowOps agent release into files FPP 9 uses for Update.
+# Stamp the current ShowOps agent release into AGENT_VERSION.
 #
 # FPP 9 Plugin Manager shows Update only after git fetch sees new commits.
 # pluginInfo.json must stay schema-valid, so the version lives in AGENT_VERSION
-# rather than an unknown JSON key.
+# rather than an unknown JSON key. checksums.txt in this tree must already
+# contain the SHA-256 lines for that release.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,20 +18,5 @@ VER="v${TAG}"
 
 printf '%s\n' "$VER" > "$ROOT/AGENT_VERSION"
 
-python3 - "$ROOT/scripts/fpp_install.sh" "$VER" <<'PY'
-from pathlib import Path
-import re, sys
-path, ver = Path(sys.argv[1]), sys.argv[2]
-text = path.read_text(encoding="utf-8")
-new, n = re.subn(
-    r'DEFAULT_RELEASE_VERSION="v[0-9]+\.[0-9]+\.[0-9]+"',
-    f'DEFAULT_RELEASE_VERSION="{ver}"',
-    text,
-    count=1,
-)
-if n != 1:
-    raise SystemExit(f"failed to patch {path} (matches={n})")
-path.write_text(new, encoding="utf-8")
-PY
-
-echo "Stamped agent ${VER} into AGENT_VERSION and scripts/fpp_install.sh"
+echo "Stamped agent ${VER} into AGENT_VERSION"
+echo "checksums.txt must already contain the SHA-256 lines for ${VER}"

@@ -2,7 +2,7 @@
   "repoName": "fpp-plugin-showops-agent",
   "name": "ShowOps Agent",
   "author": "ShowOps",
-  "description": "Connects this FPP player to your ShowOps account at api.showops.io. Status is reported there, and a private connection can open this player's FPP pages when you ask. The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi and BeagleBone only.",
+  "description": "Connects this FPP player to your ShowOps account at api.showops.io for monitoring and remote management. On instruction from ShowOps the agent can set FPP's restart banner, upgrade FPP or the OS, change volume, skip playlist items, change playlists and schedules, and open a remote support session through a Cloudflare Tunnel to this player's FPP web UI (cloudflared is fetched from github.com and pinned). Diagnostics, map location, configuration backup and restore (passwords removed), and the reboot banner stay off until you turn them on in the plugin page. The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi and BeagleBone (ARM) only.",
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
@@ -12,24 +12,48 @@
   "minMemoryMB": 512,
   "minCpuCores": 1,
   "privacy": {
-    "summary": "ShowOps watches this player and alerts you if the show does not start. The live song is sent only while its page is open. A private connection to its FPP pages opens only when you ask.",
+    "summary": "ShowOps watches this player and alerts you when the show does not start. Song, playlist, position, and volume go to your ShowOps account only while that player's page is open. Playback changes, and a private connection to this player's FPP pages, happen only when you ask. Diagnostics, location, backups, and the reboot banner stay off until you turn them on here.",
     "sends": [
       {
         "to": "api.showops.io",
-        "what": "name, versions, playback, show time, CPU, memory and disk use",
+        "what": "hostname, FPP, OS and agent version, board, playback, next show time, CPU, memory and disk use",
         "why": "to show this player's status in your ShowOps account",
         "alwaysOn": true
       },
       {
         "to": "api.showops.io",
-        "what": "MAC address hash, location, diagnostics, backups, and the song while its page is open",
-        "why": "to pair, map, troubleshoot, or restore this player when you turn that on",
+        "what": "hostname and a hash of this player's machine id and MAC addresses (a hardware identifier)",
+        "why": "to recognize this player when you pair it",
         "alwaysOn": false
       },
       {
-        "to": "argotunnel.com",
-        "what": "this player's FPP pages during a remote session",
-        "why": "so someone signed in to ShowOps can open them",
+        "to": "api.showops.io",
+        "what": "song, playlist, position and volume while someone has this player's live page open in ShowOps",
+        "why": "to show the live page in your ShowOps account",
+        "alwaysOn": false
+      },
+      {
+        "to": "api.showops.io",
+        "what": "this player's latitude and longitude",
+        "why": "to place the show on a map when you enable location",
+        "alwaysOn": false
+      },
+      {
+        "to": "api.showops.io",
+        "what": "installed plugins, network details, FPP system status and logs",
+        "why": "to troubleshoot this player when you enable diagnostics",
+        "alwaysOn": false
+      },
+      {
+        "to": "api.showops.io",
+        "what": "a configuration backup with passwords removed",
+        "why": "to restore this player when you enable backups",
+        "alwaysOn": false
+      },
+      {
+        "to": "Cloudflare Tunnel (argotunnel.com)",
+        "what": "this player's FPP web pages during a remote support session",
+        "why": "so the helper signed in to ShowOps can open FPP remotely",
         "alwaysOn": false
       }
     ],
@@ -47,35 +71,43 @@
     "systemChanges": [
       {
         "kind": "service",
-        "what": "Installs the ShowOps agent as a service, run as the fpp user"
+        "what": "Installs and enables the fpp-monitor-agent systemd service, run as the fpp user"
       },
       {
         "kind": "download",
-        "what": "Install fetches the closed-source agent from api.showops.io and pinned cloudflared from github.com"
+        "what": "Install and Update fetch the closed-source agent from api.showops.io, SHA-256 checked against the checksums committed in this plugin"
+      },
+      {
+        "kind": "download",
+        "what": "For remote support the agent fetches pinned cloudflared 2024.8.3 from github.com"
       },
       {
         "kind": "tunnel",
-        "what": "Remote support opens a private connection to this player's FPP pages"
+        "what": "Remote support can open a Cloudflare Tunnel to this player's web UI"
       },
       {
         "kind": "core-settings",
-        "what": "On request sets restart and reboot banners, upgrades FPP or the OS, edits playlists, and restores a backup"
+        "what": "On request sets FPP's restart and reboot banners, upgrades FPP or the OS, changes volume, skips playlist items, and edits playlists and schedules"
+      },
+      {
+        "kind": "core-settings",
+        "what": "Restores a ShowOps configuration backup onto this player, only when backups are turned on"
       },
       {
         "kind": "reads-core-credentials",
-        "what": "Backup reads FPP settings and removes password, token, key, and secret fields before upload"
+        "what": "Backup reads FPP settings and blanks password, token, key, secret and pass fields before upload"
       },
       {
         "kind": "network",
-        "what": "Probes LAN hosts only when you list them, and the list is empty until you do"
+        "what": "Probes LAN hosts and ports only if listed in network_allowlist, which is empty by default"
       },
       {
         "kind": "privilege",
-        "what": "Restarts the ShowOps service with FPP's sudo helper and stops fppd through FPP's API"
+        "what": "Restarts the ShowOps service with FPP's sudo helper"
       }
     ],
     "closedCode": true,
-    "other": "Pair only on a trusted network. The agent does not replace its own binary; Plugin Manager installs updates. Remote support is signed in through ShowOps, idle-limited, and reaches another LAN host only if you listed it. cloudflared stays on the pinned 2024.8.3 build. Pairing credentials stay in plugindata until Unpair."
+    "other": "Pair only on a trusted network. Pairing credentials stay in plugindata until Unpair. The agent does not replace its own binary; Update in Plugin Manager installs new agents. ShowOps can ask FPP to upgrade this plugin through FPP's own plugin upgrade. Remote support is signed in through ShowOps, opened from the cloud, and idle-limited. cloudflared stays on the pinned 2024.8.3 build. A remote session reaches only this player's FPP web UI. ShowOps can turn a listed capability off and cannot turn a switch on."
   },
   "versions": [
     {

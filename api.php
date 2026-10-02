@@ -76,65 +76,19 @@ function showopsAgentDetectCurrentVersion()
 
 function showopsAgentResolveLatestVersion()
 {
-    $showopsUrl = 'https://api.showops.io/v1/agent/releases/latest';
-    $json = showopsAgentHttpGet($showopsUrl, array(
-        'Accept: application/json',
-        'User-Agent: fpp-plugin-showops-agent',
-    ));
-    if ($json !== null) {
-        $data = json_decode($json, true);
-        if (is_array($data) && !empty($data['version']) && is_string($data['version'])) {
-            return trim($data['version']);
-        }
-    }
-
-    $apiUrl = 'https://api.github.com/repos/showops-io/fpp-agent-monitor/releases/latest';
-    $json = showopsAgentHttpGet($apiUrl, array(
-        'Accept: application/vnd.github+json',
-        'User-Agent: fpp-plugin-showops-agent',
-    ));
-    if ($json !== null) {
-        $data = json_decode($json, true);
-        if (is_array($data) && !empty($data['tag_name']) && is_string($data['tag_name'])) {
-            return trim($data['tag_name']);
-        }
-    }
-
-    $manifestUrl = 'https://raw.githubusercontent.com/showops-io/fpp-agent-monitor/main/latest.json';
-    $manifestJson = showopsAgentHttpGet($manifestUrl, array(
-        'User-Agent: fpp-plugin-showops-agent',
-    ));
-    if ($manifestJson !== null) {
-        $manifest = json_decode($manifestJson, true);
-        if (is_array($manifest) && !empty($manifest['version']) && is_string($manifest['version'])) {
-            return trim($manifest['version']);
-        }
-    }
-
-    return null;
-}
-
-function showopsAgentHttpGet($url, $headers = array())
-{
-    $headerStr = '';
-    if (!empty($headers)) {
-        $headerStr = implode("\r\n", $headers) . "\r\n";
-    }
-
-    $context = stream_context_create(array(
-        'http' => array(
-            'method' => 'GET',
-            'timeout' => 3,
-            'header' => $headerStr,
-            'ignore_errors' => true,
-        ),
-    ));
-
-    $result = @file_get_contents($url, false, $context);
-    if ($result === false) {
+    $path = dirname(__FILE__) . '/AGENT_VERSION';
+    if (!is_readable($path)) {
         return null;
     }
-    return $result;
+    $raw = file_get_contents($path);
+    if ($raw === false) {
+        return null;
+    }
+    $trimmed = trim($raw);
+    if ($trimmed === '') {
+        return null;
+    }
+    return $trimmed;
 }
 
 function showopsAgentVersionParts($version)

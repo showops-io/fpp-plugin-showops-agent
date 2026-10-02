@@ -1,0 +1,4 @@
+8b92eeec55fe59f866c5ad16d83d457f5952eb79c526a2c26fce6f9aa9cfb032  fpp-monitor-agent-linux-armv7
+11f882ed8fa46cff538bd615bc427bbda3ad9c3f5d9387a8d7ab477522eeae29  fpp-monitor-agent-linux-arm64
+664c50736ca6db177912f0d55c4d27b506b10aa98b2c4147cae4f60cee7e389f  fpp-monitor-agent-linux-armv7.tar.gz
+6532c367a874311183b9b7830ee9d3ee4b5a2710f710ab8966c7b2ad4c4a968e  fpp-monitor-agent-linux-arm64.tar.gz

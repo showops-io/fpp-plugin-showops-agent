@@ -1,5 +1,6 @@
 <?php
 require_once "/opt/fpp/www/common.php";
+require_once __DIR__ . '/scripts/post_origin.php';
 
 $mediaDir = isset($settings['mediaDirectory']) ? $settings['mediaDirectory'] : '/home/fpp/media';
 $pluginDir = __DIR__;
@@ -465,7 +466,16 @@ $errors = array();
 $logs = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $action = isset($_POST['action']) ? $_POST['action'] : '';
+  $origin = isset($_SERVER['HTTP_ORIGIN']) ? (string)$_SERVER['HTTP_ORIGIN'] : '';
+  $referer = isset($_SERVER['HTTP_REFERER']) ? (string)$_SERVER['HTTP_REFERER'] : '';
+  $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+  $httpHost = isset($_SERVER['HTTP_HOST']) ? (string)$_SERVER['HTTP_HOST'] : '';
+  if (!showops_request_from_player($httpHost, $origin, $referer, $https)) {
+    $errors[] = 'This page only accepts requests from this player.';
+    $action = '';
+  } else {
+    $action = isset($_POST['action']) ? $_POST['action'] : '';
+  }
 
   if ($action === 'pair') {
     if (!ensure_agent_present($pluginDir, $messages, $errors)) {
