@@ -3,8 +3,7 @@
 #
 # FPP 9 Plugin Manager shows Update only after git fetch sees new commits.
 # pluginInfo.json must stay schema-valid, so the version lives in AGENT_VERSION
-# rather than an unknown JSON key. checksums.txt in this tree must already
-# contain the SHA-256 lines for that release.
+# rather than an unknown JSON key. checksums.txt is downloaded from that release.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,8 +14,18 @@ if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 VER="v${TAG}"
+BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
 
 printf '%s\n' "$VER" > "$ROOT/AGENT_VERSION"
 
-echo "Stamped agent ${VER} into AGENT_VERSION"
-echo "checksums.txt must already contain the SHA-256 lines for ${VER}"
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+curl -fsSL "${BASE}/v1/agent/releases/${VER}/checksums.txt" -o "$tmp"
+if ! grep -q 'fpp-monitor-agent-linux-arm64' "$tmp" || ! grep -q 'fpp-monitor-agent-linux-armv7' "$tmp"; then
+  echo "checksums for ${VER} are missing an agent asset" >&2
+  exit 1
+fi
+mv "$tmp" "$ROOT/checksums.txt"
+trap - EXIT
+
+echo "Stamped agent ${VER} into AGENT_VERSION and checksums.txt"
