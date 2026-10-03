@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Stamp the current ShowOps agent release into files FPP 9 uses for Update.
+# Stamp the current ShowOps agent release into AGENT_VERSION.
 #
 # FPP 9 Plugin Manager shows Update only after git fetch sees new commits.
 # pluginInfo.json must stay schema-valid, so the version lives in AGENT_VERSION
-# rather than an unknown JSON key.
+# rather than an unknown JSON key. checksums.txt is downloaded from that release.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,23 +14,18 @@ if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 VER="v${TAG}"
+BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
 
 printf '%s\n' "$VER" > "$ROOT/AGENT_VERSION"
 
-python3 - "$ROOT/scripts/fpp_install.sh" "$VER" <<'PY'
-from pathlib import Path
-import re, sys
-path, ver = Path(sys.argv[1]), sys.argv[2]
-text = path.read_text(encoding="utf-8")
-new, n = re.subn(
-    r'DEFAULT_RELEASE_VERSION="v[0-9]+\.[0-9]+\.[0-9]+"',
-    f'DEFAULT_RELEASE_VERSION="{ver}"',
-    text,
-    count=1,
-)
-if n != 1:
-    raise SystemExit(f"failed to patch {path} (matches={n})")
-path.write_text(new, encoding="utf-8")
-PY
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+curl -fsSL "${BASE}/v1/agent/releases/${VER}/checksums.txt" -o "$tmp"
+if ! grep -q 'fpp-monitor-agent-linux-arm64' "$tmp" || ! grep -q 'fpp-monitor-agent-linux-armv7' "$tmp"; then
+  echo "checksums for ${VER} are missing an agent asset" >&2
+  exit 1
+fi
+mv "$tmp" "$ROOT/checksums.txt"
+trap - EXIT
 
-echo "Stamped agent ${VER} into AGENT_VERSION and scripts/fpp_install.sh"
+echo "Stamped agent ${VER} into AGENT_VERSION and checksums.txt"

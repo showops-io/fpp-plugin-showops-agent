@@ -20,64 +20,26 @@ TMP_FALLBACK_DIR="${MEDIADIR}/tmp"
 LEGACY_OPT_DIR="/opt/fpp-monitor-agent"
 LEGACY_BIN_LINK="/usr/local/bin/fpp-monitor-agent"
 
-# Fallback version used only when the ShowOps manifest and GitHub API are both unreachable.
-# Update this whenever a new stable release ships.
-DEFAULT_RELEASE_VERSION="v1.2.84"
-RELEASE_VERSION="${RELEASE_VERSION:-}"
-AGENT_REPO_OWNER="${AGENT_REPO_OWNER:-showops-io}"
-AGENT_REPO_NAME="${AGENT_REPO_NAME:-fpp-agent-monitor}"
 SHOWOPS_API_BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
+AGENT_VERSION_FILE="$REPO_ROOT/AGENT_VERSION"
+CHECKSUMS_FILE="$REPO_ROOT/checksums.txt"
 
-resolve_latest_tag() {
-  local manifest_url="${SHOWOPS_API_BASE}/v1/agent/releases/latest"
-  local github_manifest_url="https://raw.githubusercontent.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/main/latest.json"
-  local api_url="https://api.github.com/repos/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/releases/latest"
-  local body=""
-  local tmp=""
-
-  tmp="$(mktemp)"
-  if download_file "$manifest_url" "$tmp" 1>&2; then
-    body="$(cat "$tmp")"
-    rm -f "$tmp"
-    version="$(echo "$body" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-    if [[ -n "$version" ]]; then
-      echo "$version"
-      return 0
-    fi
-  else
-    rm -f "$tmp"
-    log "Failed to resolve latest tag from $manifest_url" >&2
+read_committed_version() {
+  if [[ ! -s "$AGENT_VERSION_FILE" ]]; then
+    log "AGENT_VERSION is missing"
+    exit 1
   fi
-
-  # Dual-publish fallback (remove after ShowOps channel is sole source of truth).
-  tmp="$(mktemp)"
-  if download_file "$github_manifest_url" "$tmp" 1>&2; then
-    body="$(cat "$tmp")"
-    rm -f "$tmp"
-    version="$(echo "$body" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-    if [[ -n "$version" ]]; then
-      echo "$version"
-      return 0
-    fi
+  if [[ ! -s "$CHECKSUMS_FILE" ]]; then
+    log "checksums.txt is missing"
+    exit 1
   fi
-  rm -f "$tmp"
-  log "Failed to resolve latest tag from $github_manifest_url" >&2
-
-  tmp="$(mktemp)"
-  if ! download_file "$api_url" "$tmp" 1>&2; then
-    rm -f "$tmp"
-    log "Failed to resolve latest tag from $api_url" >&2
-    return 1
+  local version
+  version="$(tr -d '[:space:]' < "$AGENT_VERSION_FILE")"
+  if [[ -z "$version" ]]; then
+    log "AGENT_VERSION is empty"
+    exit 1
   fi
-  body="$(cat "$tmp")"
-  rm -f "$tmp"
-
-  tag="$(echo "$body" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-  if [[ -n "$tag" ]]; then
-    echo "$tag"
-    return 0
-  fi
-  return 1
+  printf '%s\n' "$version"
 }
 
 ensure_tmpdir() {
@@ -94,27 +56,14 @@ ensure_tmpdir() {
 
 ensure_tmpdir
 
-RESOLVED_TAG="$RELEASE_VERSION"
-if [[ -z "$RESOLVED_TAG" ]]; then
-  RESOLVED_TAG="$(resolve_latest_tag || true)"
-  if [[ -z "$RESOLVED_TAG" ]]; then
-    log "WARNING: Could not resolve latest release tag from manifest or GitHub API."
-    log "WARNING: Falling back to hardcoded default version: $DEFAULT_RELEASE_VERSION"
-    log "WARNING: This may not be the latest release. Check network connectivity"
-    log "WARNING: or set RELEASE_VERSION explicitly to suppress this warning."
-    RESOLVED_TAG="$DEFAULT_RELEASE_VERSION"
-  else
-    log "Resolved latest tag: $RESOLVED_TAG"
-  fi
-fi
+RESOLVED_TAG="$(read_committed_version)"
+log "Installing agent version $RESOLVED_TAG named in this plugin"
 
 RELEASE_BASE="${RELEASE_BASE:-${SHOWOPS_API_BASE}/v1/agent/releases/${RESOLVED_TAG}}"
-GITHUB_RELEASE_BASE="https://github.com/${AGENT_REPO_OWNER}/${AGENT_REPO_NAME}/releases/download/${RESOLVED_TAG}"
 
 platform_arch="$($ROOT_DIR/detect_platform.sh)"
 asset_tar="fpp-monitor-agent-linux-${platform_arch}.tar.gz"
 asset_bin="fpp-monitor-agent-linux-${platform_arch}"
-checksums_name="checksums.txt"
 
 if ! is_dry_run; then
   ensure_dir "$PLUGIN_DIR"
@@ -130,16 +79,25 @@ fi
 tmp_dir="$(mktemp -d)"
 tmp_tar="$tmp_dir/$asset_tar"
 tmp_bin="$tmp_dir/$asset_bin"
-tmp_checksums="$tmp_dir/$checksums_name"
 install_mode=""
 
+checksum_for() {
+  local name="$1"
+  awk -v name="$name" '$2 == name { print $1; exit }' "$CHECKSUMS_FILE"
+}
+
+if [[ -z "$(checksum_for "$asset_bin")" && -z "$(checksum_for "$asset_tar")" ]]; then
+  log "Checksum for $asset_bin or $asset_tar not found in checksums.txt"
+  rm -rf "$tmp_dir"
+  exit 1
+fi
+
 log "Downloading release assets from $RELEASE_BASE"
-log "Resolved asset URLs: $RELEASE_BASE/$asset_tar or $RELEASE_BASE/$asset_bin and $RELEASE_BASE/$checksums_name"
+log "Resolved asset URLs: $RELEASE_BASE/$asset_tar or $RELEASE_BASE/$asset_bin"
 if is_dry_run; then
   log "DRY_RUN: would download $RELEASE_BASE/$asset_tar"
   log "DRY_RUN: would download $RELEASE_BASE/$asset_bin if tar missing"
-  log "DRY_RUN: would download $RELEASE_BASE/$checksums_name"
-  log "DRY_RUN: would verify checksum and install $BIN_PATH"
+  log "DRY_RUN: would verify checksum from $CHECKSUMS_FILE and install $BIN_PATH"
   log "DRY_RUN: would install cloudflared to $INSTALL_DIR/cloudflared"
   log "DRY_RUN: would write version file to $INSTALL_DIR/VERSION"
   rm -rf "$tmp_dir"
@@ -147,12 +105,7 @@ else
   download_release_asset() {
     local name="$1"
     local dest="$2"
-    if download_file "$RELEASE_BASE/$name" "$dest"; then
-      return 0
-    fi
-    # Dual-publish fallback while the ShowOps channel is still being seeded.
-    log "ShowOps download failed for $name; trying GitHub Releases"
-    download_file "$GITHUB_RELEASE_BASE/$name" "$dest"
+    download_file "$RELEASE_BASE/$name" "$dest"
   }
 
   # Prefer the slim binary (~7MB) over the tarball (~20MB). Small FPP boards
@@ -169,18 +122,12 @@ else
       exit 1
     fi
   fi
-  if ! download_release_asset "$checksums_name" "$tmp_checksums"; then
-    log "Failed to download $checksums_name"
-    rm -rf "$tmp_dir"
-    exit 1
-  fi
-
   if [[ "$install_mode" == "tar" ]]; then
-    expected_sha="$(awk -v name="$asset_tar" '$2 == name { print $1; exit }' "$tmp_checksums")"
+    expected_sha="$(checksum_for "$asset_tar")"
     asset_name="$asset_tar"
     asset_path="$tmp_tar"
   else
-    expected_sha="$(awk -v name="$asset_bin" '$2 == name { print $1; exit }' "$tmp_checksums")"
+    expected_sha="$(checksum_for "$asset_bin")"
     asset_name="$asset_bin"
     asset_path="$tmp_bin"
   fi

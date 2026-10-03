@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.6.0",
+  "contractVersion": "1.7.0",
   "description": "Machine-readable checks for docs/PLUGIN_API_CONTRACT.md. CI fails if plugin paths or UI POST actions drift without updating the contract.",
   "frozenPaths": {
     "userConfigFile": "/home/fpp/media/plugindata/fpp-plugin-showops-agent/fpp-monitor-agent.json",
@@ -33,7 +33,9 @@
         "action === 'tail'",
         "action === 'settings'",
         "showops-agent-enrollment.json",
-        "delete_enrollment_stash"
+        "delete_enrollment_stash",
+        "showops_request_from_player",
+        "post_origin.php"
       ]
     },
     {
@@ -46,14 +48,17 @@
         "log_install_session_start",
         "\"backup_enabled\": false",
         "$2 == name",
-        "migrate_legacy_enrollment_stash"
+        "migrate_legacy_enrollment_stash",
+        "AGENT_VERSION",
+        "checksums.txt",
+        "read_committed_version"
       ]
     },
     {
-      "file": "scripts/fpp_update_check.sh",
+      "file": "api.php",
       "mustContain": [
-        "bin/VERSION",
-        "fpp-agent-monitor"
+        "AGENT_VERSION",
+        "dirname(__FILE__)"
       ]
     },
     {
@@ -105,7 +110,10 @@
       "file": "pluginInfo.json",
       "mustContain": [
         "\"repoName\": \"fpp-plugin-showops-agent\"",
-        "fpp-plugin-showops-agent.git"
+        "fpp-plugin-showops-agent.git",
+        "fpp-monitor-agent systemd service",
+        "cloudflared is fetched from github.com",
+        "cannot turn a switch on"
       ]
     }
   ]

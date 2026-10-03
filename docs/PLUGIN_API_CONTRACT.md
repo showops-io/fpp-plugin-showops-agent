@@ -95,7 +95,7 @@ This repo does not emit the header (PHP UI is local-only); **fpp-agent-monitor**
 
 ## 5. Security boundary (show network)
 
-- **Leaves the LAN:** TLS to ShowOps API (`api_base_url`), GitHub release URLs for binary updates, and optional cloudflared endpoints for remote support — as configured by the agent.
+- **Leaves the LAN:** TLS to ShowOps API (`api_base_url`), the agent binary from `api.showops.io` at the version named in `AGENT_VERSION`, and optional cloudflared endpoints for remote support — as configured by the agent.
 - **Stays on the Pi:** FPP plugin UI (HTTP to local FPP), config file on disk, local logs under `/home/fpp/media/logs/` when the installer writes them.
 - **Secrets:** `device_token`, `enrollment_token`, `cloudflared_token` must not be logged by the plugin UI (UI does not print raw tokens).
 
@@ -115,12 +115,14 @@ Aligned with architect checkpoint **SHO-253** — targets for product/ops, not a
 
 ## 7. Agent release tarball (binary contract)
 
-The plugin downloads release assets from [fpp-agent-monitor](https://github.com/jlwright325/fpp-agent-monitor). The tarball must contain:
+Install reads `AGENT_VERSION` and `checksums.txt` committed in this plugin. It downloads only `${SHOWOPS_API_BASE}/v1/agent/releases/${AGENT_VERSION}/` (default `https://api.showops.io`). It does not call `/v1/agent/releases/latest` and does not fall back to GitHub. `RELEASE_VERSION` is ignored.
+
+The tarball, when used, must contain:
 
 - `fpp-monitor-agent` (executable)
 - Optional `cloudflared` (executable) for remote sessions
 
-Checksum verification uses `checksums.txt` from the same release. Look up the SHA by **exact** asset filename (second field). Substring matches are wrong: `fpp-monitor-agent-linux-armv7` also appears inside `fpp-monitor-agent-linux-armv7.tar.gz`. **Do not** change asset naming without updating `scripts/fpp_install.sh` and this document.
+Checksum verification uses the committed `checksums.txt`. Look up the SHA by **exact** asset filename (second field, `$2 == name`). Substring matches are wrong: `fpp-monitor-agent-linux-armv7` also appears inside `fpp-monitor-agent-linux-armv7.tar.gz`. **Do not** change asset naming without updating `scripts/fpp_install.sh`, `checksums.txt`, and this document. Install fails when the version file or the checksum line is missing.
 
 ### Field pitfalls (install / run)
 
@@ -132,17 +134,11 @@ Checksum verification uses `checksums.txt` from the same release. Look up the SH
 
 ## 8. Update detection for FPP's Plugins page
 
-FPP's `PluginHasUpdates()` decides whether to show "update available" by looking for unpulled commits in the plugin directory, then falling back to `scripts/fpp_update_check.sh`. This plugin needs the fallback: the agent binary ships as a release asset in [fpp-agent-monitor](https://github.com/jlwright325/fpp-agent-monitor), so a plugin repo with no new commits says nothing about how far behind the installed binary is.
+Plugin Manager shows an update when this plugin repository has new commits. `AGENT_VERSION` changes in those commits. The device does not call `/v1/agent/releases/latest` and does not ask GitHub which agent build to install.
 
-`scripts/fpp_update_check.sh` must therefore keep FPP's contract:
+`api.php` `GET updates` compares `bin/VERSION` with the committed `AGENT_VERSION`. It does not make an HTTP request.
 
-- exit `0`, and print `1` as the **final stdout line** when the installed release tag is older than the newest one
-- print `0` for every other outcome, including no binary installed and no network — FPP treats a non-zero exit or any other final line as "no update"
-- keep diagnostics on **stderr**; FPP reads only the last stdout line
-
-Latest-version resolution asks `api.showops.io` once. A successful answer is cached for 15 minutes and a failure for 2 minutes at `/home/fpp/media/tmp/showops-agent-update-check` (keyed by installed version) because FPP runs the check on every Plugins page render.
-
-Applying the update needs nothing extra here — FPP's `upgrade_plugin` runs `scripts/fpp_install.sh` after the no-op `git pull`, and that installs the newest release without overwriting an existing config.
+Applying the update runs `scripts/fpp_install.sh`, which installs the version named in `AGENT_VERSION` and checks it against `checksums.txt` without overwriting an existing config.
 
 ---
 

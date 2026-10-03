@@ -2,7 +2,7 @@ name: Stamp agent version
 
 # FPP 9 Plugin Manager only shows Update after git fetch sees new plugin commits
 # (CheckForPluginUpdates → git fetch → PluginHasUpdates git log). Agent CI must
-# stamp AGENT_VERSION and the install fallback on every tag.
+# stamp AGENT_VERSION on every tag. checksums.txt is committed with that release.
 on:
   repository_dispatch:
     types: [agent-release]
@@ -46,13 +46,13 @@ jobs:
         run: |
           set -eu
           TAG="${{ steps.tag.outputs.tag }}"
-          if git diff --quiet -- AGENT_VERSION scripts/fpp_install.sh; then
+          if git diff --quiet -- AGENT_VERSION checksums.txt; then
             echo "Already stamped for ${TAG}"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add AGENT_VERSION scripts/fpp_install.sh
+          git add AGENT_VERSION checksums.txt
           git commit -m "Stamp plugin for agent ${TAG} (FPP 9 Update detection)."
           git push origin HEAD:main
 
