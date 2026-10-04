@@ -20,7 +20,7 @@ printf '%s\n' "$VER" > "$ROOT/AGENT_VERSION"
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-curl -fsSL "${BASE}/v1/agent/releases/${VER}/checksums.txt" -o "$tmp"
+curl -fsSL --connect-timeout 15 --max-time 180 "${BASE}/v1/agent/releases/${VER}/checksums.txt" -o "$tmp"
 if ! grep -q 'fpp-monitor-agent-linux-arm64' "$tmp" || ! grep -q 'fpp-monitor-agent-linux-armv7' "$tmp"; then
   echo "checksums for ${VER} are missing an agent asset" >&2
   exit 1

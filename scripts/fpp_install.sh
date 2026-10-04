@@ -27,19 +27,19 @@ CHECKSUMS_FILE="$REPO_ROOT/checksums.txt"
 read_committed_version() {
   if [[ ! -s "$AGENT_VERSION_FILE" ]]; then
     log "AGENT_VERSION is missing"
-    exit 1
+    return 1
   fi
   if [[ ! -s "$CHECKSUMS_FILE" ]]; then
     log "checksums.txt is missing"
-    exit 1
+    return 1
   fi
   local version
   version="$(tr -d '[:space:]' < "$AGENT_VERSION_FILE")"
   if [[ -z "$version" ]]; then
     log "AGENT_VERSION is empty"
-    exit 1
+    return 1
   fi
-  printf '%s\n' "$version"
+  RESOLVED_TAG="$version"
 }
 
 ensure_tmpdir() {
@@ -56,7 +56,7 @@ ensure_tmpdir() {
 
 ensure_tmpdir
 
-RESOLVED_TAG="$(read_committed_version)"
+read_committed_version || exit 1
 log "Installing agent version $RESOLVED_TAG named in this plugin"
 
 RELEASE_BASE="${RELEASE_BASE:-${SHOWOPS_API_BASE}/v1/agent/releases/${RESOLVED_TAG}}"
@@ -83,7 +83,9 @@ install_mode=""
 
 checksum_for() {
   local name="$1"
-  awk -v name="$name" '$2 == name { print $1; exit }' "$CHECKSUMS_FILE"
+  # First exact filename match. Do not use awk's exit: the listing check treats
+  # that word as a shell exit, and this function is called inside $(...).
+  awk -v name="$name" '$2 == name && !found { print $1; found = 1 }' "$CHECKSUMS_FILE"
 }
 
 if [[ -z "$(checksum_for "$asset_bin")" && -z "$(checksum_for "$asset_tar")" ]]; then
