@@ -2,7 +2,7 @@
   "repoName": "fpp-plugin-showops-agent",
   "name": "ShowOps Agent",
   "author": "ShowOps",
-  "description": "Connects this FPP player to your ShowOps account at api.showops.io for monitoring and remote management. On instruction from ShowOps the agent can set FPP's restart banner, upgrade FPP or the OS, change volume, skip playlist items, change playlists and schedules, and open a remote support session through a Cloudflare Tunnel to this player's FPP web UI (cloudflared is fetched from github.com and pinned). Diagnostics, map location, configuration backup and restore (passwords removed), and the reboot banner stay off until you turn them on in the plugin page. The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi and BeagleBone (ARM) only.",
+  "description": "Connects this FPP player to your ShowOps account at api.showops.io for monitoring and remote management. On instruction from ShowOps the agent can set FPP's restart banner, upgrade FPP or the OS, change volume, skip playlist items, change playlists and schedules, run FPP's display test for up to 5 minutes, and open a remote support session through a Cloudflare Tunnel to this player's FPP web UI (cloudflared is fetched from github.com and pinned). Diagnostics, map location, configuration backup and restore (passwords removed), and the reboot banner stay off until you turn them on in the plugin page. The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi and BeagleBone (ARM) only.",
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
@@ -30,6 +30,12 @@
         "to": "api.showops.io",
         "what": "song, playlist, position and volume while someone has this player's live page open in ShowOps",
         "why": "to show the live page in your ShowOps account",
+        "alwaysOn": false
+      },
+      {
+        "to": "api.showops.io",
+        "what": "model names and their channel ranges from FPP's model list",
+        "why": "to let you pick models in ShowOps Test lights, read only when you open it",
         "alwaysOn": false
       },
       {
@@ -88,6 +94,10 @@
       {
         "kind": "core-settings",
         "what": "On request sets FPP's restart and reboot banners, upgrades FPP or the OS, changes volume, skips playlist items, and edits playlists and schedules"
+      },
+      {
+        "kind": "core-settings",
+        "what": "On request runs FPP's own display test pattern, refused while a show plays and stopped after at most 5 minutes"
       },
       {
         "kind": "core-settings",
