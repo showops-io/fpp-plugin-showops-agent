@@ -16,9 +16,11 @@ on:
 permissions:
   contents: write
 
+# Runs on GitHub's Linux runners unless the repository variable CI_RUNNER names
+# another runner (for example "self-hosted" for the owner's Mac).
 jobs:
   stamp:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
