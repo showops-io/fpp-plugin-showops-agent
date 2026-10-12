@@ -263,6 +263,11 @@ else
     run_privileged chown -R fpp:fpp "$PLUGINDATA_DIR" || true
     run_privileged chmod 700 "$PLUGINDATA_DIR" || true
     run_privileged chmod 600 "$CONFIG_PATH" || true
+    # Plugin Manager runs this as root, so log() above created the log as root.
+    # The agent runs as fpp and exits if it cannot write it.
+    if [[ -f "$LOG_FILE" ]]; then
+      run_privileged chown fpp:fpp "$LOG_FILE" || true
+    fi
   else
     run_cmd chmod 700 "$PLUGINDATA_DIR" || true
     run_cmd chmod 600 "$CONFIG_PATH" || true
