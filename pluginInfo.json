@@ -2,7 +2,7 @@
   "repoName": "fpp-plugin-showops-agent",
   "name": "ShowOps Agent",
   "author": "ShowOps",
-  "description": "Connects this FPP player to your ShowOps account at api.showops.io for monitoring and remote management. On instruction from ShowOps the agent can set FPP's restart banner, upgrade FPP or the OS, change volume, skip playlist items, change playlists and schedules, run FPP's display test for up to 5 minutes, and open a remote support session through a Cloudflare Tunnel to this player's FPP web UI (cloudflared is fetched from github.com and pinned). Diagnostics, map location, configuration backup and restore (passwords removed), and the reboot banner stay off until you turn them on in the plugin page. The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi and BeagleBone (ARM) only.",
+  "description": "Connects this FPP player to your ShowOps account at api.showops.io for monitoring and remote management. On instruction from ShowOps the agent can set FPP's restart banner, upgrade FPP or the OS, change volume, skip playlist items, change playlists and schedules, run FPP's display test for up to 5 minutes, and open a remote support session through a Cloudflare Tunnel to this player's FPP web UI (cloudflared is fetched from github.com and pinned). Diagnostics, map location, configuration backup and restore (passwords removed), and the reboot banner stay off until you turn them on in the plugin page. The agent is closed source and does not replace its own binary. Pair only on a trusted network. Raspberry Pi, BeagleBone, and 64-bit x86 Debian or Ubuntu (including FPP in Docker).",
   "homeURL": "https://github.com/showops-io/fpp-plugin-showops-agent",
   "srcURL": "https://github.com/showops-io/fpp-plugin-showops-agent.git",
   "bugURL": "https://github.com/showops-io/fpp-plugin-showops-agent/issues",
@@ -129,7 +129,9 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64"
+        "BeagleBone 64",
+        "Debian",
+        "Ubuntu"
       ]
     },
     {
@@ -141,7 +143,9 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64"
+        "BeagleBone 64",
+        "Debian",
+        "Ubuntu"
       ]
     },
     {
@@ -153,7 +157,9 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64"
+        "BeagleBone 64",
+        "Debian",
+        "Ubuntu"
       ]
     },
     {
@@ -165,7 +171,9 @@
       "platforms": [
         "Raspberry Pi",
         "BeagleBone Black",
-        "BeagleBone 64"
+        "BeagleBone 64",
+        "Debian",
+        "Ubuntu"
       ]
     }
   ]
