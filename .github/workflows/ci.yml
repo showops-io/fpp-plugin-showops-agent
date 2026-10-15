@@ -36,7 +36,7 @@ jobs:
 
   dry-run-install:
     name: Dry-Run Install
-    # The installer only supports ARM FPP boards, so dry-run it on ARM.
+    # Dry-run on ARM: x86 needs an agent release that includes amd64 assets.
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -65,21 +65,16 @@ jobs:
       - name: Smoke test — detect_platform.sh runs without error
         run: bash scripts/detect_platform.sh
 
-  refuses-x86:
-    name: Refuses x86
+  detects-x86:
+    name: Detects x86-64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: detect_platform.sh and fpp_install.sh refuse x86_64
+      - name: detect_platform.sh maps x86_64 to the amd64 agent
         run: |
-          set -uo pipefail
-          if bash scripts/detect_platform.sh; then
-            echo "detect_platform.sh accepted $(uname -m)"; exit 1
-          fi
-          if DRY_RUN=1 bash scripts/fpp_install.sh; then
-            echo "fpp_install.sh accepted $(uname -m)"; exit 1
-          fi
+          set -euo pipefail
+          test "$(bash scripts/detect_platform.sh)" = amd64
 
   dry-run-uninstall:
     name: Dry-Run Uninstall

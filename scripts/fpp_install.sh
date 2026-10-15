@@ -297,8 +297,29 @@ elif [[ -f "$REPO_ROOT/system/fpp-monitor-agent.sh" ]]; then
 fi
 
 if ! is_systemd; then
-  log "Systemd is required. FPP images provide it; refusing to start the agent as root."
-  exit 1
+  # FPP in Docker has no systemd. FPP runs scripts/postStart.sh after fppd
+  # starts; it keeps the agent running as the fpp user. Run it now as well so
+  # the agent starts without waiting for an fppd restart.
+  if is_dry_run; then
+    log "DRY_RUN: no systemd; would start the agent with scripts/postStart.sh"
+  else
+    # Matches the agent's command line but not this pattern's own text.
+    agent_pattern="${INSTALL_DIR}/[f]pp-monitor-agent --config"
+    was_running=0
+    if pgrep -f "$agent_pattern" >/dev/null 2>&1; then
+      was_running=1
+    fi
+    log "No systemd: starting the agent with the plugin's postStart.sh (runs as fpp)"
+    bash "$ROOT_DIR/postStart.sh"
+    if [[ "$was_running" -eq 1 ]]; then
+      # Same reason as the delayed systemd restart below: an upgrade can be
+      # started by the agent itself. The supervisor starts the new binary.
+      setsid bash -c "sleep 5; pkill -f '$agent_pattern'" </dev/null >/dev/null 2>&1 &
+      log "Scheduled agent restart in 5s"
+    fi
+  fi
+  log "Install complete"
+  exit 0
 fi
 
 log "Installing systemd service"
