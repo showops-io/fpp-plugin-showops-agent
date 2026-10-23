@@ -640,6 +640,38 @@ if ($pairingCode !== '') {
   }
   $errors = $filtered;
 }
+
+// "about 7 minutes" until a pairing code expires; '' when unknown or past.
+function minutes_left_text($expiresAt) {
+  $ts = strtotime((string)$expiresAt);
+  if ($ts === false) {
+    return '';
+  }
+  $mins = (int)ceil(($ts - time()) / 60);
+  if ($mins <= 0) {
+    return '';
+  }
+  return $mins === 1 ? 'about 1 minute' : 'about ' . $mins . ' minutes';
+}
+
+// "3 min ago" for the last check-in; the raw value when it does not parse.
+function ago_text($when) {
+  $ts = strtotime((string)$when);
+  if ($ts === false) {
+    return (string)$when;
+  }
+  $secs = max(0, time() - $ts);
+  if ($secs < 90) {
+    return 'just now';
+  }
+  if ($secs < 5400) {
+    return round($secs / 60) . ' min ago';
+  }
+  if ($secs < 172800) {
+    return round($secs / 3600) . ' h ago';
+  }
+  return date('M j', $ts);
+}
 ?>
 
 <style>
@@ -664,10 +696,34 @@ if ($pairingCode !== '') {
 .showops-page .showops-muted-details {
   margin-top: 1rem;
 }
+/* Own layout for checkboxes and the QR row: FPP's theme sizes checkboxes
+   bigger than Bootstrap's .form-check expects, so floats stair-step. */
+.showops-page .showops-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.6rem 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+.showops-page .showops-check input[type='checkbox'] {
+  float: none;
+  flex: 0 0 auto;
+  margin: 0;
+}
+.showops-page .showops-qr-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.showops-page .showops-qr-row .showops-qr-hint {
+  flex: 1 1 12rem;
+}
 </style>
 
 <div class="container-fluid showops-page px-0 px-sm-2" id="showops-root">
-  <h2 class="mb-2">ShowOps</h2>
 
   <?php foreach ($messages as $msg): ?>
     <div class="alert alert-success"><?php echo h($msg); ?></div>
@@ -680,14 +736,14 @@ if ($pairingCode !== '') {
     <div class="card-body">
       <form method="post">
         <?php if ($step === 'install'): ?>
-          <h3 class="h5">Install from Plugin Manager</h3>
-          <p class="text-body-secondary mb-0">This page does not download software. Use FPP → Content Setup → Plugin Manager to install or update ShowOps, then return here to pair. Pair only on a network you trust.</p>
+          <h3 class="h5">Setup did not finish</h3>
+          <p class="text-body-secondary mb-2">The ShowOps agent was not downloaded. Make sure this player can reach the internet, then open Content Setup → Plugin Manager and click Update (or Reinstall) on ShowOps Agent. Come back here when it finishes.</p>
+          <a class="btn btn-outline-secondary" href="plugins.php">Open Plugin Manager</a>
 
         <?php elseif ($step === 'pair'): ?>
           <h3 class="h5">Connect this player to ShowOps</h3>
           <p class="text-body-secondary mb-2">
-            Agent <?php echo h($agentVersion); ?> is installed<?php echo $running ? ' and running' : ''; ?>.
-            Click below to get a one-time code, then add the player on showops.io. Do this on a network you trust.
+            Click below to get a one-time code and add this player to your ShowOps account. Do this on a network you trust.
           </p>
           <?php if ($rateLimited): ?>
             <div class="alert alert-warning">Too many pairing attempts. Wait about 2 minutes, then try once.</div>
@@ -710,33 +766,33 @@ if ($pairingCode !== '') {
             </div>
           <?php endif; ?>
           <?php if ($connectUrl !== ''): ?>
-            <div class="d-flex align-items-center gap-3 mb-3">
+            <div class="showops-qr-row">
               <img id="showops-qr" data-url="<?php echo h($connectUrl); ?>" alt="QR code for the Connect to ShowOps link" class="border rounded bg-white p-1">
-              <div class="text-body-secondary small">On your phone: scan this in the ShowOps app (Devices, then +) or with the camera.</div>
+              <div class="showops-qr-hint text-body-secondary small">On your phone: scan this in the ShowOps app (Devices, then +) or with the camera.</div>
             </div>
           <?php endif; ?>
           <p class="text-body-secondary small mb-1">On another computer? Go to <span class="font-monospace"><?php echo h(showops_connect_base_url($config)); ?>/connect</span> and enter:</p>
           <div class="showops-code fw-bold font-monospace mb-1"><?php echo h($pairingCode); ?></div>
-          <div class="text-body-secondary small mb-3">Expires: <?php echo h($pairingExpires); ?>. Anyone who can open this page can see the code until then.</div>
+          <?php $left = minutes_left_text($pairingExpires); ?>
+          <div class="text-body-secondary small mb-3"><?php echo $left !== '' ? 'Works for ' . h($left) . '. ' : ''; ?>Anyone who can open this page can see the code until then.</div>
           <div class="showops-actions">
             <button class="btn btn-outline-secondary" type="submit" name="action" value="pair">Get a new code</button>
             <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart agent</button>
           </div>
 
         <?php else: /* paired */ ?>
-          <h3 class="h5">Paired</h3>
+          <h3 class="h5">Connected to ShowOps</h3>
           <?php $claimedOrg = isset($config['claimed_org_name']) ? trim((string)$config['claimed_org_name']) : ''; ?>
           <?php if ($claimedOrg !== ''): ?>
             <p class="mb-1">ShowOps account: <?php echo h($claimedOrg); ?></p>
           <?php endif; ?>
-          <p class="mb-1">Device ID: <span class="font-monospace"><?php echo h($deviceId); ?></span></p>
           <p class="text-body-secondary small mb-3">
             Agent <?php echo h($running ? 'running' : 'stopped'); ?>
             · <?php echo h($agentVersion); ?>
-            <?php if ($heartbeatTs !== ''): ?> · last heartbeat <?php echo h($heartbeatTs); ?><?php endif; ?>
+            <?php if ($heartbeatTs !== ''): ?> · last check-in <?php echo h(ago_text($heartbeatTs)); ?><?php endif; ?>
           </p>
           <div class="showops-actions">
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart Agent</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart agent</button>
             <button class="btn btn-outline-danger" type="submit" name="action" value="unpair">Unpair</button>
           </div>
         <?php endif; ?>
@@ -744,24 +800,24 @@ if ($pairingCode !== '') {
       <?php if ($step === 'paired'): ?>
         <form method="post" class="mt-3">
           <input type="hidden" name="action" value="settings">
-          <h3 class="h6">Optional data and actions</h3>
+          <h3 class="h6 mt-2">Optional data and actions</h3>
           <p class="text-body-secondary small">Off until you turn them on. Monitoring of show status stays on.</p>
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="fpp_collect_enabled" id="fpp_collect_enabled" <?php echo config_flag_on($config, 'fpp_collect_enabled') ? 'checked' : ''; ?>>
-            <label class="form-check-label" for="fpp_collect_enabled">Send diagnostics (plugins, network, logs)</label>
-          </div>
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="location_enabled" id="location_enabled" <?php echo config_flag_on($config, 'location_enabled') ? 'checked' : ''; ?>>
-            <label class="form-check-label" for="location_enabled">Send map location</label>
-          </div>
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="backup_enabled" id="backup_enabled" <?php echo config_flag_on($config, 'backup_enabled') ? 'checked' : ''; ?>>
-            <label class="form-check-label" for="backup_enabled">Allow configuration backup upload (passwords removed)</label>
-          </div>
-          <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="reboot_enabled" id="reboot_enabled" <?php echo config_flag_on($config, 'reboot_enabled') ? 'checked' : ''; ?>>
-            <label class="form-check-label" for="reboot_enabled">Allow ShowOps to request an FPP reboot banner</label>
-          </div>
+          <label class="showops-check" for="fpp_collect_enabled">
+            <input type="checkbox" name="fpp_collect_enabled" id="fpp_collect_enabled" <?php echo config_flag_on($config, 'fpp_collect_enabled') ? 'checked' : ''; ?>>
+            <span>Send diagnostics (plugins, network, logs)</span>
+          </label>
+          <label class="showops-check" for="location_enabled">
+            <input type="checkbox" name="location_enabled" id="location_enabled" <?php echo config_flag_on($config, 'location_enabled') ? 'checked' : ''; ?>>
+            <span>Send map location</span>
+          </label>
+          <label class="showops-check" for="backup_enabled">
+            <input type="checkbox" name="backup_enabled" id="backup_enabled" <?php echo config_flag_on($config, 'backup_enabled') ? 'checked' : ''; ?>>
+            <span>Allow configuration backup upload (passwords removed)</span>
+          </label>
+          <label class="showops-check" for="reboot_enabled">
+            <input type="checkbox" name="reboot_enabled" id="reboot_enabled" <?php echo config_flag_on($config, 'reboot_enabled') ? 'checked' : ''; ?>>
+            <span>Allow ShowOps to request an FPP reboot banner</span>
+          </label>
           <button class="btn btn-outline-primary" type="submit">Save settings</button>
         </form>
       <?php endif; ?>
@@ -772,6 +828,7 @@ if ($pairingCode !== '') {
     <summary class="text-body-secondary">Technical details</summary>
     <div class="card mt-2 border bg-body-tertiary">
       <div class="card-body small">
+        <?php if ($deviceId !== ''): ?><div>Device ID: <span class="font-monospace"><?php echo h($deviceId); ?></span></div><?php endif; ?>
         <div>Installed: <?php echo h($installed ? 'yes' : 'no'); ?> · Running: <?php echo h($running ? 'yes' : 'no'); ?> · Arch: <?php echo h($arch); ?></div>
         <div class="text-break mt-1">Last log: <?php echo h($lastLog !== '' ? $lastLog : 'none'); ?></div>
       </div>
