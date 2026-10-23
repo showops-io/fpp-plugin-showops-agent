@@ -3,6 +3,7 @@
 $root = dirname(__DIR__);
 require_once $root . '/scripts/post_origin.php';
 require_once $root . '/api.php';
+require_once $root . '/scripts/connect_link.php';
 
 $failed = 0;
 
@@ -28,6 +29,13 @@ expect('https default port', showops_request_from_player('fpp.local', 'https://f
 expect('https rejects http origin', showops_request_from_player('fpp.local', 'http://fpp.local/', '', true), false);
 expect('origin wins over referer', showops_request_from_player('fpp.local', 'http://fpp.local/', 'http://other.example/', false), true);
 expect('host case', showops_request_from_player('FPP.Local', 'http://fpp.local/', '', false), true);
+
+expect('connect url default', showops_connect_url(array(), 'fpp-7k3q-9xm2'), 'https://showops.io/connect#code=FPP-7K3Q-9XM2');
+expect('connect url custom base', showops_connect_url(array('app_base_url' => 'https://staging.showops.io/'), 'FPP-AAAA-BBBB'), 'https://staging.showops.io/connect#code=FPP-AAAA-BBBB');
+expect('connect url rejects http base', showops_connect_url(array('app_base_url' => 'http://evil.example'), 'FPP-AAAA-BBBB'), 'https://showops.io/connect#code=FPP-AAAA-BBBB');
+expect('connect url rejects base with path', showops_connect_base_url(array('app_base_url' => 'https://evil.example/x?')), 'https://showops.io');
+expect('connect url rejects odd code', showops_connect_url(array(), 'FPP-AAAA"><script>'), '');
+expect('connect url empty code', showops_connect_url(array(), ''), '');
 
 $committed = trim(file_get_contents($root . '/AGENT_VERSION'));
 expect('committed version', showopsAgentResolveLatestVersion(), $committed);

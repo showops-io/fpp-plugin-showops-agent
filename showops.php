@@ -1,6 +1,7 @@
 <?php
 require_once "/opt/fpp/www/common.php";
 require_once __DIR__ . '/scripts/post_origin.php';
+require_once __DIR__ . '/scripts/connect_link.php';
 
 $mediaDir = isset($settings['mediaDirectory']) ? $settings['mediaDirectory'] : '/home/fpp/media';
 $pluginDir = __DIR__;
@@ -518,7 +519,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $startMessages = array();
             $startErrors = array();
             restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
-            $messages = array('Pairing code ready — claim it in ShowOps → Devices.');
+            $messages = array('Ready. Click Connect to ShowOps to add this player.');
             $errors = array();
           }
         }
@@ -683,10 +684,10 @@ if ($pairingCode !== '') {
           <p class="text-body-secondary mb-0">This page does not download software. Use FPP → Content Setup → Plugin Manager to install or update ShowOps, then return here to pair. Pair only on a network you trust.</p>
 
         <?php elseif ($step === 'pair'): ?>
-          <h3 class="h5">Generate a pairing code</h3>
+          <h3 class="h5">Connect this player to ShowOps</h3>
           <p class="text-body-secondary mb-2">
             Agent <?php echo h($agentVersion); ?> is installed<?php echo $running ? ' and running' : ''; ?>.
-            Create a code on a network you trust, then claim it in ShowOps → Devices. Anyone who can open this page can see the code until it expires.
+            Click below to get a one-time code, then add the player on showops.io. Do this on a network you trust.
           </p>
           <?php if ($rateLimited): ?>
             <div class="alert alert-warning">Too many pairing attempts. Wait about 2 minutes, then try once.</div>
@@ -695,15 +696,22 @@ if ($pairingCode !== '') {
           <?php endif; ?>
           <div class="showops-actions">
             <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" <?php echo $rateLimited ? 'disabled' : ''; ?>>
-              Generate Pairing Code
+              Connect to ShowOps
             </button>
           </div>
 
         <?php elseif ($step === 'claim'): ?>
-          <h3 class="h5">Claim this player</h3>
-          <p class="text-body-secondary mb-2">Enter this code in ShowOps → Devices → Claim an FPP. Do this on a network you trust.</p>
+          <?php $connectUrl = showops_connect_url($config, $pairingCode); ?>
+          <h3 class="h5">Add this player on showops.io</h3>
+          <p class="text-body-secondary mb-2">Sign in to ShowOps and click Add. This page updates when it is done.</p>
+          <?php if ($connectUrl !== ''): ?>
+            <div class="showops-actions mb-3">
+              <a class="btn btn-success btn-lg" href="<?php echo h($connectUrl); ?>" target="_blank" rel="noopener noreferrer">Connect to ShowOps</a>
+            </div>
+          <?php endif; ?>
+          <p class="text-body-secondary small mb-1">On another computer or phone? Go to <span class="font-monospace"><?php echo h(showops_connect_base_url($config)); ?>/connect</span> and enter:</p>
           <div class="showops-code fw-bold font-monospace mb-1"><?php echo h($pairingCode); ?></div>
-          <div class="text-body-secondary small mb-3">Expires: <?php echo h($pairingExpires); ?></div>
+          <div class="text-body-secondary small mb-3">Expires: <?php echo h($pairingExpires); ?>. Anyone who can open this page can see the code until then.</div>
           <div class="showops-actions">
             <button class="btn btn-outline-secondary" type="submit" name="action" value="pair">Get a new code</button>
             <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart agent</button>
@@ -774,3 +782,10 @@ if ($pairingCode !== '') {
     <?php endif; ?>
   </details>
 </div>
+<?php if ($step === 'claim'): ?>
+<script>
+// Reload with a plain GET (never re-POST) so the page shows Paired once the
+// player has been added on showops.io.
+window.setTimeout(function () { window.location.replace(window.location.href); }, 15000);
+</script>
+<?php endif; ?>

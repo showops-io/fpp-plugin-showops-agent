@@ -129,6 +129,7 @@ Checksum verification uses the committed `checksums.txt`. Look up the SHA by **e
 - **Sourcing FPP `scripts/common` under `set -u`:** that file expands unset `LD_LIBRARY_PATH`. Always `set +eu` around the source in `install_common.sh` and `system/fpp-monitor-agent.sh`, then restore `set -euo pipefail`. Otherwise Plugin Manager reports only `Could not properly install plugin`, or systemd shows the agent never running.
 - **UI path:** FPP requests `showops.php` at the plugin root (`menu.inc`). Keep root `showops.php`; leave `www/showops.php` as a shim.
 - **Pairing:** creating a code is not enrollment. The agent must be running to poll claim; `Running: no` means ShowOps claim will not finish on-device.
+- **Connect link:** next to a code the page links to `<app_base_url>/connect#code=<code>` (default `https://showops.io`; optional config key `app_base_url`, https origin only). The code is in the fragment so it is never sent to a server; claiming still needs a signed-in owner or show admin on showops.io. Built by `scripts/connect_link.php`.
 
 ---
 
