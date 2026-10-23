@@ -709,7 +709,13 @@ if ($pairingCode !== '') {
               <a class="btn btn-success btn-lg" href="<?php echo h($connectUrl); ?>" target="_blank" rel="noopener noreferrer">Connect to ShowOps</a>
             </div>
           <?php endif; ?>
-          <p class="text-body-secondary small mb-1">On another computer or phone? Go to <span class="font-monospace"><?php echo h(showops_connect_base_url($config)); ?>/connect</span> and enter:</p>
+          <?php if ($connectUrl !== ''): ?>
+            <div class="d-flex align-items-center gap-3 mb-3">
+              <img id="showops-qr" data-url="<?php echo h($connectUrl); ?>" alt="QR code for the Connect to ShowOps link" class="border rounded bg-white p-1">
+              <div class="text-body-secondary small">On your phone: scan this in the ShowOps app (Devices, then +) or with the camera.</div>
+            </div>
+          <?php endif; ?>
+          <p class="text-body-secondary small mb-1">On another computer? Go to <span class="font-monospace"><?php echo h(showops_connect_base_url($config)); ?>/connect</span> and enter:</p>
           <div class="showops-code fw-bold font-monospace mb-1"><?php echo h($pairingCode); ?></div>
           <div class="text-body-secondary small mb-3">Expires: <?php echo h($pairingExpires); ?>. Anyone who can open this page can see the code until then.</div>
           <div class="showops-actions">
@@ -784,6 +790,21 @@ if ($pairingCode !== '') {
 </div>
 <?php if ($step === 'claim'): ?>
 <script>
+<?php readfile(__DIR__ . '/www/js/qrcode.js'); ?>
+
+(function () {
+  // Draw the Connect link as a QR code (a GIF data URL, no markup injected).
+  var img = document.getElementById('showops-qr');
+  if (!img || typeof qrcode !== 'function') return;
+  try {
+    var qr = qrcode(0, 'M');
+    qr.addData(img.getAttribute('data-url'));
+    qr.make();
+    img.src = qr.createDataURL(5, 2);
+  } catch (e) {
+    img.style.display = 'none';
+  }
+})();
 // Reload with a plain GET (never re-POST) so the page shows Paired once the
 // player has been added on showops.io.
 window.setTimeout(function () { window.location.replace(window.location.href); }, 15000);
