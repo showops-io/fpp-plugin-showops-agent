@@ -244,7 +244,7 @@ function agent_is_running() {
 
 function reset_pairing_config($configPath) {
   $reset = read_config($configPath);
-  $reset['api_base_url'] = 'https://api.showops.io';
+  $reset['api_base_url'] = SHOWOPS_DEFAULT_API_BASE_URL;
   $reset['pairing_requested'] = false;
   $reset['pairing_request_id'] = '';
   $reset['pairing_code'] = '';
@@ -271,7 +271,7 @@ function delete_enrollment_stash($mediaDir) {
 /** Wipe local enrollment so the UI cannot show a cloud device that no longer exists. */
 function clear_local_enrollment($configPath) {
   $reset = read_config($configPath);
-  $reset['api_base_url'] = 'https://api.showops.io';
+  $reset['api_base_url'] = SHOWOPS_DEFAULT_API_BASE_URL;
   $reset['device_id'] = '';
   $reset['device_token'] = '';
   $reset['enrollment_token'] = '';
@@ -483,7 +483,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // keep error
     } else {
       $current = read_config($configPath);
-      $apiBase = !empty($current['api_base_url']) ? $current['api_base_url'] : 'https://api.showops.io';
+      $apiBase = !empty($current['api_base_url']) ? $current['api_base_url'] : SHOWOPS_DEFAULT_API_BASE_URL;
       $fingerprint = isset($current['device_fingerprint']) ? trim((string)$current['device_fingerprint']) : '';
       if ($fingerprint === '') {
         $fingerprint = compute_device_fingerprint();

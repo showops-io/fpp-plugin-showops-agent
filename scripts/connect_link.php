@@ -3,6 +3,9 @@
 // The code rides in the URL fragment so it never reaches a server log;
 // showops.io reads it in the browser and the claim still needs a signed-in owner.
 
+// Where the agent talks to ShowOps unless the config names another API.
+const SHOWOPS_DEFAULT_API_BASE_URL = 'https://api.showops.io';
+
 function showops_connect_base_url($config)
 {
     $base = isset($config['app_base_url']) ? trim((string)$config['app_base_url']) : '';
