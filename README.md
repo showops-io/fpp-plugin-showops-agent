@@ -12,7 +12,7 @@ ShowOps is not in FPP’s built-in catalog yet. Paste this **raw** URL into **Co
 https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json
 ```
 
-Then install **ShowOps Agent**, open **Content Setup → ShowOps Configuration**, generate a pairing code (`FPP-XXXX-XXXX`), and claim it in ShowOps Devices.
+Then install **ShowOps Agent**, open **Content Setup → ShowOps**, click **Connect to ShowOps**, and click **Add player** on showops.io (or scan the QR code with the ShowOps app).
 
 On FPP 10, set UI Level to **Developer** so paste-install can load the card. On FPP 7–9, Advanced is usually enough.
 

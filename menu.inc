@@ -11,7 +11,7 @@
 
 $menuEntries = Array(
   Array(
-    'text' => 'ShowOps Configuration',
+    'text' => 'ShowOps',
     'type' => 'content',
     'page' => 'showops.php',
     'wrap' => 1
