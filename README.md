@@ -12,7 +12,7 @@ ShowOps is not in FPP’s built-in catalog yet. Paste this **raw** URL into **Co
 https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json
 ```
 
-Then install **ShowOps Agent**, open **Content Setup → ShowOps**, click **Sign in to ShowOps**, and sign in on the showops.io tab that opens. The player is added to your account automatically (or scan the QR code on a phone).
+Then install **ShowOps Agent**, open **Content Setup → ShowOps**, enter your ShowOps email and password, and click **Sign in and connect** (plus your 2-step code if you use one). The player is added to your account; pick a show if you have more than one. Your password is passed to ShowOps over HTTPS and never saved on the player.
 
 On FPP 10, set UI Level to **Developer** so paste-install can load the card. On FPP 7–9, Advanced is usually enough.
 
@@ -20,8 +20,8 @@ Do **not** paste the GitHub repo homepage or a `.git` URL.
 
 ## Pair / unpair
 
-- Connect: **Sign in to ShowOps** in the plugin UI. Typing the code at showops.io/connect still works.
-- Unpair / reinstall: use the plugin UI or re-run `scripts/fpp_install.sh` (keeps existing config unless you remove it).
+- Connect: sign in on the plugin page. Accounts that use Google, Apple, GitHub or a passkey open **Signing in on showops.io or your phone instead?** there for a link, QR code and short code (also accepted at showops.io/connect).
+- Disconnect / reinstall: use **Disconnect from ShowOps** in the plugin UI or re-run `scripts/fpp_install.sh` (keeps existing config unless you remove it).
 
 ## Useful paths
 

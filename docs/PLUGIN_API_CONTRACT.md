@@ -72,7 +72,8 @@ Environment variable **`FPP_MONITOR_INSTALL_RUN_ID`** is exported for the script
 
 | Value | Behavior |
 |-------|----------|
-| `pair` | Save a short-lived pairing code and restart the agent |
+| `pair` | Save a short-lived pairing code and restart the agent (refused while connected) |
+| `signin` | Forward the page's sign-in (`body`, JSON) to `{api_base_url}/v1/pairing/sign-in` with this player's own pairing code. Known fields only, curl body on stdin, no redirects, nothing saved or logged; JSON reply only |
 | `unpair` | Clear the local device token |
 | `restart` | `systemctl restart` the agent unit |
 | `settings` | Save backup, location, diagnostics, and reboot switches, then restart the agent |
@@ -129,7 +130,8 @@ Checksum verification uses the committed `checksums.txt`. Look up the SHA by **e
 - **Sourcing FPP `scripts/common` under `set -u`:** that file expands unset `LD_LIBRARY_PATH`. Always `set +eu` around the source in `install_common.sh` and `system/fpp-monitor-agent.sh`, then restore `set -euo pipefail`. Otherwise Plugin Manager reports only `Could not properly install plugin`, or systemd shows the agent never running.
 - **UI path:** FPP requests `showops.php` at the plugin root (`menu.inc`). Keep root `showops.php`; leave `www/showops.php` as a shim.
 - **Pairing:** creating a code is not enrollment. The agent must be running to poll claim; `Running: no` means ShowOps claim will not finish on-device.
-- **Connect link:** next to a code the page links to `<app_base_url>/connect#code=<code>` (default `https://showops.io`; optional config key `app_base_url`, https origin only). The code is in the fragment so it is never sent to a server; claiming still needs a signed-in owner or show admin on showops.io. Built by `scripts/connect_link.php`.
+- **Sign in on the page:** FPP's page CSP only allows `connect-src 'self'`, so the browser cannot call the API. The page posts to `action=signin` and the player forwards it (see `showops_forward_signin`, `scripts/connect_link.php`). The API never returns a session or token; the agent still gets its device token by polling with its nonce.
+- **Connect link (fallback):** next to a code the page links to `<app_base_url>/connect#code=<code>` (default `https://showops.io`; optional config key `app_base_url`, https origin only). The code is in the fragment so it is never sent to a server; claiming still needs a signed-in owner or show admin on showops.io. Built by `scripts/connect_link.php`.
 
 ---
 

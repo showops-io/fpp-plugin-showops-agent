@@ -355,7 +355,7 @@ fi
 if [[ -x "$BIN_PATH" ]] || is_dry_run; then
   log "Install complete"
   # Shown at the end of FPP's install dialog: tell people where to go next.
-  log "Next: open Content Setup > ShowOps and click Sign in to ShowOps."
+  log "Next: open Content Setup > ShowOps and sign in with your ShowOps account."
   exit 0
 fi
 
