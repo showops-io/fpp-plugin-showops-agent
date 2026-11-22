@@ -3,6 +3,12 @@
 # systemd run the agent as fpp-monitor-agent.service, so this does nothing
 # there. Without systemd (FPP in Docker) it starts the agent's supervisor as
 # the fpp user, once.
+#
+# There is deliberately no preStop/postStop that stops it (PLUGIN_GUIDELINES
+# §2.6). Like the systemd service, the agent must outlive fppd: one of its jobs
+# is telling the owner that fppd has stopped or crashed, which it can't do if it
+# stops with fppd. The pgrep guard below means an fppd restart never starts a
+# second copy, and fpp_uninstall.sh stops it.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

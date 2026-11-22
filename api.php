@@ -31,7 +31,6 @@ function showopsAgentUpdates()
 
     $response = array(
         'status' => 'ok',
-        'repo' => 'showops-io/fpp-agent-monitor',
         'currentVersion' => $currentVersion,
         'latestVersion' => $latestVersion,
     );

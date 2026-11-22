@@ -73,6 +73,11 @@ function write_config_atomic($path, $data, &$error) {
   return true;
 }
 
+// The agent's command line. pgrep/pkill -x cannot match it: process names are
+// cut to 15 characters ("fpp-monitor-age"). The [/] keeps the pattern from
+// matching the shell that runs pgrep itself.
+define('SHOWOPS_AGENT_PROC', escapeshellarg('[/]bin/fpp-monitor-agent( |$)'));
+
 function run_cmd($cmd, &$output, &$exitCode) {
   $output = array();
   $exitCode = 0;
@@ -112,8 +117,8 @@ function service_status($serviceName) {
     }
   }
 
-  // Exact process name — do not match fpp-monitor-agent.sh.
-  run_cmd('pgrep -x fpp-monitor-agent', $output, $code);
+  // The binary, not fpp-monitor-agent.sh or the supervisor.
+  run_cmd('pgrep -f ' . SHOWOPS_AGENT_PROC, $output, $code);
   return $code === 0 ? 'running' : 'stopped';
 }
 
@@ -230,7 +235,7 @@ function tail_logs($serviceName, $lines, $pluginLogPath = '') {
 }
 
 function agent_is_running() {
-  run_cmd('pgrep -x fpp-monitor-agent >/dev/null 2>&1', $output, $code);
+  run_cmd('pgrep -f ' . SHOWOPS_AGENT_PROC . ' >/dev/null 2>&1', $output, $code);
   if ($code === 0) {
     return true;
   }
@@ -275,6 +280,7 @@ function clear_local_enrollment($configPath) {
   $reset['device_id'] = '';
   $reset['device_token'] = '';
   $reset['enrollment_token'] = '';
+  $reset['device_fingerprint'] = '';
   $reset['last_heartbeat_ts'] = '';
   $reset['pairing_requested'] = false;
   $reset['pairing_request_id'] = '';
@@ -442,7 +448,10 @@ function restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $
   if (!ensure_agent_present($pluginDir, $messages, $errors)) {
     return false;
   }
-  if (!is_systemd() || systemd_unit_path($serviceName) === '') {
+  if (!is_systemd()) {
+    return restart_supervised_agent($pluginDir, $messages, $errors);
+  }
+  if (systemd_unit_path($serviceName) === '') {
     $errors[] = 'The agent service is not installed. Use FPP Plugin Manager to reinstall ShowOps.';
     return false;
   }
@@ -456,6 +465,41 @@ function restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $
   $detail = trim(implode(' ', $output));
   $errors[] = 'Could not restart the agent' . ($detail !== '' ? (': ' . substr($detail, 0, 180)) : '.');
   return false;
+}
+
+/**
+ * No systemd (FPP in Docker): postStart.sh runs the agent under
+ * system/fpp-monitor-agent-supervise.sh, which starts it again 5 seconds after
+ * it exits. Restart = stop the agent and let the supervisor bring it back, or
+ * start the supervisor when it is not running.
+ */
+function restart_supervised_agent($pluginDir, &$messages, &$errors) {
+  // [/] keeps pgrep from matching the shell that runs it.
+  $supervisor = escapeshellarg('[/]system/fpp-monitor-agent-supervise[.]sh');
+  run_cmd('pgrep -f ' . $supervisor . ' >/dev/null 2>&1', $output, $code);
+  if ($code === 0) {
+    run_cmd('pkill -f ' . SHOWOPS_AGENT_PROC . ' 2>&1', $output, $code);
+    // 1 = nothing to stop; the supervisor starts it within 5 seconds anyway.
+    if ($code === 0 || $code === 1) {
+      $messages[] = 'Agent restarted.';
+      return true;
+    }
+    $errors[] = 'Could not restart the agent' . (count($output) ? (': ' . substr(trim(implode(' ', $output)), 0, 180)) : '.');
+    return false;
+  }
+  run_cmd('bash ' . escapeshellarg($pluginDir . '/scripts/postStart.sh') . ' 2>&1', $output, $code);
+  if ($code !== 0) {
+    $errors[] = 'Could not start the agent' . (count($output) ? (': ' . substr(trim(implode(' ', $output)), 0, 180)) : '.');
+    return false;
+  }
+  usleep(500000);
+  run_cmd('pgrep -f ' . $supervisor . ' >/dev/null 2>&1', $output, $code);
+  if ($code !== 0) {
+    $errors[] = 'Could not start the agent. Check the log below, or reinstall ShowOps in Plugin Manager.';
+    return false;
+  }
+  $messages[] = 'Agent started.';
+  return true;
 }
 
 function config_flag_on($config, $key) {
@@ -518,9 +562,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Start/restart agent so it can poll until the code is claimed.
             $startMessages = array();
             $startErrors = array();
-            restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
-            $messages = array('Ready. Click Connect to ShowOps to add this player.');
-            $errors = array();
+            $started = restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
+            if ($started) {
+              $messages = array('Ready. Click Connect to ShowOps to add this player.');
+              $errors = array();
+            } else {
+              // The code is saved, but nothing will pick it up until the agent runs.
+              $messages = array();
+              $errors = array_merge(
+                array('The pairing code is saved, but the agent is not running, so this player will stay offline in ShowOps.'),
+                $startErrors
+              );
+            }
           }
         }
       }
@@ -530,7 +583,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // (reinstall/replace), and the agent may not be installed to finish unpair.
     clear_local_enrollment($configPath);
     delete_enrollment_stash($mediaDir);
-    run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
+    run_cmd('pkill -f ' . SHOWOPS_AGENT_PROC . ' >/dev/null 2>&1; true', $output, $code);
     $messages[] = 'Local pairing cleared. Generate a new code when you are ready.';
   } elseif ($action === 'restart') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);

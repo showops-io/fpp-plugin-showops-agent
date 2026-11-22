@@ -65,12 +65,18 @@ if have_command crontab; then
   fi
 fi
 
-# Leave plugindata in place so pairing survives FPP Plugin Manager reinstall.
-# Unpair in the plugin UI is what clears the device token.
 delete_legacy_enrollment_stash
-if [[ -f "$LEGACY_CONFIG_PATH" && ! -f "$CONFIG_PATH" ]]; then
-  log "Legacy config remains at $LEGACY_CONFIG_PATH; next install migrates it into plugindata"
+
+# PLUGIN_GUIDELINES.md §2.12: keep pairing only across a Reinstall (FPP 10.4+
+# runs this script with FPP_PLUGIN_REINSTALL=1 then). Any other uninstall,
+# including FPP 10.3 and older where the variable is unset, removes it.
+if [[ "${FPP_PLUGIN_REINSTALL:-0}" == "1" ]]; then
+  log "Reinstall: keeping pairing config in $PLUGINDATA_DIR"
+else
+  run_cmd rm -rf "$PLUGINDATA_DIR" || true
+  run_cmd rm -f "$LEGACY_CONFIG_PATH" || true
+  run_cmd rm -f "${MEDIADIR}/config/plugin.${PLUGIN_REPO_NAME}" || true
+  log "Removed pairing config and plugin data. Remove the player in ShowOps too."
 fi
-log "Left pairing config in plugindata (removed only by Unpair)"
 
 log "Uninstall complete"
