@@ -204,7 +204,7 @@ function ensure_agent_present($pluginDir, &$messages, &$errors) {
   if (agent_binary_path($pluginDir) !== '') {
     return true;
   }
-  $errors[] = 'Agent is not installed yet. Install or update ShowOps from FPP Plugin Manager, then click Sign in to ShowOps.';
+  $errors[] = 'Agent is not installed yet. Install or update ShowOps from FPP Plugin Manager, then sign in with your ShowOps account.';
   return false;
 }
 
