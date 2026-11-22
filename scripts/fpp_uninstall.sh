@@ -10,7 +10,6 @@ log_install_session_start "uninstall"
 PLUGIN_DIR="$REPO_ROOT"
 PLUGIN_REPO_NAME="${SHOWOPS_PLUGIN_REPO_NAME:-fpp-plugin-showops-agent}"
 PLUGINDATA_DIR="${MEDIADIR}/plugindata/${PLUGIN_REPO_NAME}"
-CONFIG_PATH="${PLUGINDATA_DIR}/fpp-monitor-agent.json"
 LEGACY_CONFIG_PATH="${MEDIADIR}/config/fpp-monitor-agent.json"
 LEGACY_PLUGIN_DIRS=(
   "${MEDIADIR}/plugins/showops-agent"
