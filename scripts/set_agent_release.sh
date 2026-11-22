@@ -16,16 +16,22 @@ fi
 VER="v${TAG}"
 BASE="${SHOWOPS_API_BASE:-https://api.showops.io}"
 
-printf '%s\n' "$VER" > "$ROOT/AGENT_VERSION"
-
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
-curl -fsSL --connect-timeout 15 --max-time 180 "${BASE}/v1/agent/releases/${VER}/checksums.txt" -o "$tmp"
-if ! grep -q 'fpp-monitor-agent-linux-arm64' "$tmp" || ! grep -q 'fpp-monitor-agent-linux-armv7' "$tmp"; then
-  echo "checksums for ${VER} are missing an agent asset" >&2
-  exit 1
-fi
-mv "$tmp" "$ROOT/checksums.txt"
+# Fetch and check checksums first; write nothing until both files are ready, so a
+# failed fetch never leaves a new AGENT_VERSION next to old checksums.
+tmp_sums="$(mktemp "$ROOT/.checksums.XXXXXX")"
+tmp_ver="$(mktemp "$ROOT/.agent_version.XXXXXX")"
+trap 'rm -f "$tmp_sums" "$tmp_ver"' EXIT
+curl -fsSL --connect-timeout 15 --max-time 180 "${BASE}/v1/agent/releases/${VER}/checksums.txt" -o "$tmp_sums"
+for arch in armv7 arm64 amd64; do
+  if ! grep -Eq "^[0-9a-f]{64}  fpp-monitor-agent-linux-${arch}$" "$tmp_sums"; then
+    echo "checksums for ${VER} are missing fpp-monitor-agent-linux-${arch}" >&2
+    exit 1
+  fi
+done
+printf '%s\n' "$VER" > "$tmp_ver"
+chmod 0644 "$tmp_sums" "$tmp_ver"
+mv "$tmp_sums" "$ROOT/checksums.txt"
+mv "$tmp_ver" "$ROOT/AGENT_VERSION"
 trap - EXIT
 
 echo "Stamped agent ${VER} into AGENT_VERSION and checksums.txt"
