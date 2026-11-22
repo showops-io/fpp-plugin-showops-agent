@@ -199,7 +199,7 @@ function ensure_agent_present($pluginDir, &$messages, &$errors) {
   if (agent_binary_path($pluginDir) !== '') {
     return true;
   }
-  $errors[] = 'Agent is not installed yet. Install or update ShowOps from FPP Plugin Manager, then generate a pairing code.';
+  $errors[] = 'Agent is not installed yet. Install or update ShowOps from FPP Plugin Manager, then click Sign in to ShowOps.';
   return false;
 }
 
@@ -479,7 +479,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 
   if ($action === 'pair') {
-    if (!ensure_agent_present($pluginDir, $messages, $errors)) {
+    $currentForGuard = read_config($configPath);
+    $alreadyConnected = !empty($currentForGuard['device_id']) && !empty($currentForGuard['device_token']);
+    if ($alreadyConnected) {
+      // Never drop a working connection from this button. Disconnect first.
+      $errors[] = 'This player is already connected to ShowOps. Disconnect it first to connect it to another account.';
+    } elseif (!ensure_agent_present($pluginDir, $messages, $errors)) {
       // keep error
     } else {
       $current = read_config($configPath);
@@ -519,7 +524,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $startMessages = array();
             $startErrors = array();
             restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $startMessages, $startErrors);
-            $messages = array('Ready. Click Connect to ShowOps to add this player.');
+            $messages = array('Ready. Finish signing in on showops.io.');
             $errors = array();
           }
         }
@@ -531,7 +536,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     clear_local_enrollment($configPath);
     delete_enrollment_stash($mediaDir);
     run_cmd('pkill -x fpp-monitor-agent >/dev/null 2>&1; true', $output, $code);
-    $messages[] = 'Local pairing cleared. Generate a new code when you are ready.';
+    $messages[] = 'Disconnected on this player. Click Sign in to ShowOps when you are ready to connect it again.';
   } elseif ($action === 'restart') {
     restart_agent($serviceName, $fallbackScript, $pluginDir, $configPath, $pluginLogPath, $messages, $errors);
   } elseif ($action === 'settings') {
@@ -628,6 +633,24 @@ if ($enrolled) {
   $step = 'claim';
 } else {
   $step = 'pair';
+}
+
+// The page's own scripts: a status check (GET) and the Sign in button (POST).
+$wantsJson = isset($_REQUEST['format']) ? (string)$_REQUEST['format'] : '';
+if ($wantsJson === 'status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+  echo showops_json_envelope(array('step' => showops_public_step($step)));
+  exit;
+}
+if ($wantsJson === 'json' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  $reply = array('step' => showops_public_step($step));
+  if ($step === 'claim' && empty($errors)) {
+    $reply['connect_url'] = showops_connect_url($config, $pairingCode);
+  }
+  if (!empty($errors)) {
+    $reply['error'] = (string)$errors[0];
+  }
+  echo showops_json_envelope($reply);
+  exit;
 }
 
 // Never show "no code yet" when the code is already on screen.
@@ -743,40 +766,43 @@ function ago_text($when) {
         <?php elseif ($step === 'pair'): ?>
           <h3 class="h5">Connect this player to ShowOps</h3>
           <p class="text-body-secondary mb-2">
-            Click below to get a one-time code and add this player to your ShowOps account. Do this on a network you trust.
+            Sign in with your ShowOps account and this player is added to it automatically. No codes to copy. Your password goes only to showops.io, never to this player.
           </p>
           <?php if ($rateLimited): ?>
-            <div class="alert alert-warning">Too many pairing attempts. Wait about 2 minutes, then try once.</div>
+            <div class="alert alert-warning">Too many tries. Wait about 2 minutes, then try once.</div>
           <?php elseif ($alreadyPairedCloud): ?>
-            <div class="alert alert-warning">This player is already linked in ShowOps. Remove it under Devices, then generate a new code.</div>
+            <div class="alert alert-warning">This player is still linked to a ShowOps account. Remove it under Devices in that account, then sign in again.</div>
           <?php endif; ?>
           <div class="showops-actions">
-            <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" <?php echo $rateLimited ? 'disabled' : ''; ?>>
-              Connect to ShowOps
+            <button class="btn btn-success btn-lg" type="submit" name="action" value="pair" id="showops-signin" <?php echo $rateLimited ? 'disabled' : ''; ?>>
+              Sign in to ShowOps
             </button>
           </div>
+          <p class="text-body-secondary small mt-2 mb-0">Opens showops.io in a new tab. No account yet? You can request one there.</p>
+          <div class="alert alert-danger mt-3 mb-0" id="showops-js-error" role="alert" hidden></div>
 
         <?php elseif ($step === 'claim'): ?>
           <?php $connectUrl = showops_connect_url($config, $pairingCode); ?>
-          <h3 class="h5">Add this player on showops.io</h3>
-          <p class="text-body-secondary mb-2">Sign in to ShowOps and click Add. This page updates when it is done.</p>
+          <h3 class="h5">Finish signing in on showops.io</h3>
+          <p class="text-body-secondary mb-2">Sign in on the showops.io tab and you are done. This page turns green by itself within a minute.</p>
           <?php if ($connectUrl !== ''): ?>
             <div class="showops-actions mb-3">
-              <a class="btn btn-success btn-lg" href="<?php echo h($connectUrl); ?>" target="_blank" rel="noopener noreferrer">Connect to ShowOps</a>
+              <a class="btn btn-success btn-lg" id="showops-open-signin" href="<?php echo h($connectUrl); ?>" target="_blank" rel="noopener noreferrer">Open the sign-in tab</a>
             </div>
-          <?php endif; ?>
-          <?php if ($connectUrl !== ''): ?>
             <div class="showops-qr-row">
-              <img id="showops-qr" data-url="<?php echo h($connectUrl); ?>" alt="QR code for the Connect to ShowOps link" class="border rounded bg-white p-1">
-              <div class="showops-qr-hint text-body-secondary small">On your phone: scan this in the ShowOps app (Devices, then +) or with the camera.</div>
+              <img id="showops-qr" data-url="<?php echo h($connectUrl); ?>" alt="QR code for signing in to ShowOps on a phone" class="border rounded bg-white p-1">
+              <div class="showops-qr-hint text-body-secondary small">Or use your phone: scan this with the camera or the ShowOps app and sign in there.</div>
             </div>
           <?php endif; ?>
-          <p class="text-body-secondary small mb-1">On another computer? Go to <span class="font-monospace"><?php echo h(showops_connect_base_url($config)); ?>/connect</span> and enter:</p>
-          <div class="showops-code fw-bold font-monospace mb-1"><?php echo h($pairingCode); ?></div>
           <?php $left = minutes_left_text($pairingExpires); ?>
-          <div class="text-body-secondary small mb-3"><?php echo $left !== '' ? 'Works for ' . h($left) . '. ' : ''; ?>Anyone who can open this page can see the code until then.</div>
+          <div class="text-body-secondary small mb-3"><?php echo $left !== '' ? 'The sign-in link works for ' . h($left) . '. ' : ''; ?>Nothing is connected until you sign in.</div>
+          <details class="mb-3 small">
+            <summary class="text-body-secondary">Signing in on another computer?</summary>
+            <p class="text-body-secondary mt-2 mb-1">Go to <span class="font-monospace"><?php echo h(showops_connect_base_url($config)); ?>/connect</span> and enter:</p>
+            <div class="showops-code fw-bold font-monospace"><?php echo h($pairingCode); ?></div>
+          </details>
           <div class="showops-actions">
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="pair">Get a new code</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="pair">Start over</button>
             <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart agent</button>
           </div>
 
@@ -793,7 +819,7 @@ function ago_text($when) {
           </p>
           <div class="showops-actions">
             <button class="btn btn-outline-secondary" type="submit" name="action" value="restart">Restart agent</button>
-            <button class="btn btn-outline-danger" type="submit" name="action" value="unpair">Unpair</button>
+            <button class="btn btn-outline-danger" type="submit" name="action" value="unpair">Disconnect from ShowOps</button>
           </div>
         <?php endif; ?>
       </form>
@@ -845,12 +871,84 @@ function ago_text($when) {
     <?php endif; ?>
   </details>
 </div>
+<script>
+// Shared by the scripts below: this page fetched without FPP's menus.
+// FPP still prints a few header bits on that path, so the reply sits between
+// markers (see showops_json_envelope).
+var showopsPage = (function () {
+  function url(extra) {
+    var params = new URLSearchParams(window.location.search);
+    params.set('nopage', '1');
+    Object.keys(extra).forEach(function (k) { params.set(k, extra[k]); });
+    return window.location.pathname + '?' + params.toString();
+  }
+  function parse(text) {
+    var start = text.indexOf('<?php echo SHOWOPS_JSON_START; ?>');
+    var end = text.indexOf('<?php echo SHOWOPS_JSON_END; ?>');
+    if (start < 0 || end < start) throw new Error('no reply');
+    return JSON.parse(text.slice(start + <?php echo strlen(SHOWOPS_JSON_START); ?>, end));
+  }
+  function call(method, extra, body) {
+    var opts = { method: method, credentials: 'same-origin', cache: 'no-store' };
+    if (body) {
+      opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      opts.body = new URLSearchParams(body).toString();
+    }
+    return fetch(url(extra), opts).then(function (r) { return r.text(); }).then(parse);
+  }
+  function reload() { window.location.replace(window.location.pathname + window.location.search); }
+  return { call: call, reload: reload };
+})();
+</script>
+<?php if ($step === 'pair'): ?>
+<script>
+(function () {
+  // One click: open the sign-in tab right away (so pop-up blockers allow it),
+  // ask ShowOps for a sign-in link, then point the tab at it. Without
+  // JavaScript the button still submits the form and the next page has the link.
+  var button = document.getElementById('showops-signin');
+  var errorBox = document.getElementById('showops-js-error');
+  if (!button || !window.fetch || !window.URLSearchParams) return;
+  button.addEventListener('click', function (event) {
+    event.preventDefault();
+    if (button.disabled) return;
+    button.disabled = true;
+    errorBox.hidden = true;
+    var tab = window.open('', '_blank');
+    if (tab) {
+      try { tab.opener = null; } catch (e) {}
+      try { tab.document.title = 'ShowOps'; tab.document.body.textContent = 'Opening ShowOps sign-in…'; } catch (e) {}
+    }
+    showopsPage.call('POST', { format: 'json' }, { action: 'pair' }).then(function (reply) {
+      if (reply.connect_url && /^https:\/\//.test(reply.connect_url)) {
+        if (tab) tab.location.replace(reply.connect_url);
+        showopsPage.reload();
+        return;
+      }
+      if (tab) tab.close();
+      if (reply.error) {
+        errorBox.textContent = reply.error;
+        errorBox.hidden = false;
+        button.disabled = false;
+        return;
+      }
+      showopsPage.reload();
+    }).catch(function () {
+      if (tab) tab.close();
+      errorBox.textContent = 'Could not start sign-in. Check that this player is online, then try again.';
+      errorBox.hidden = false;
+      button.disabled = false;
+    });
+  });
+})();
+</script>
+<?php endif; ?>
 <?php if ($step === 'claim'): ?>
 <script>
 <?php readfile(__DIR__ . '/www/js/qrcode.js'); ?>
 
 (function () {
-  // Draw the Connect link as a QR code (a GIF data URL, no markup injected).
+  // Draw the sign-in link as a QR code (a GIF data URL, no markup injected).
   var img = document.getElementById('showops-qr');
   if (!img || typeof qrcode !== 'function') return;
   try {
@@ -862,8 +960,36 @@ function ago_text($when) {
     img.style.display = 'none';
   }
 })();
-// Reload with a plain GET (never re-POST) so the page shows Paired once the
-// player has been added on showops.io.
-window.setTimeout(function () { window.location.replace(window.location.href); }, 15000);
+(function () {
+  // Check every 3 seconds and reload (a plain GET, never a re-POST) once the
+  // player is connected or the link ran out. Falls back to the old 15-second
+  // reload if the check itself does not work.
+  if (!window.fetch || !window.URLSearchParams) {
+    window.setTimeout(showopsPage.reload, 15000);
+    return;
+  }
+  var failures = 0;
+  var lastNudge = Date.now();
+  function check() {
+    if (document.hidden) { window.setTimeout(check, 3000); return; }
+    showopsPage.call('GET', { format: 'status' }).then(function (reply) {
+      failures = 0;
+      if (reply.step !== 'claim') { showopsPage.reload(); return; }
+      window.setTimeout(check, 3000);
+    }).catch(function () {
+      failures += 1;
+      if (failures >= 5) { window.setTimeout(showopsPage.reload, 15000); return; }
+      window.setTimeout(check, 3000);
+    });
+  }
+  window.setTimeout(check, 3000);
+  // Back from the sign-in tab: have the agent look right away instead of
+  // waiting out its back-off (up to a minute). At most every 30 seconds.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || Date.now() - lastNudge < 30000) return;
+    lastNudge = Date.now();
+    showopsPage.call('POST', { format: 'json' }, { action: 'restart' }).catch(function () {});
+  });
+})();
 </script>
 <?php endif; ?>

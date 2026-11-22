@@ -23,3 +23,22 @@ function showops_connect_url($config, $code)
     }
     return showops_connect_base_url($config) . '/connect#code=' . $code;
 }
+
+// The plugin page's own scripts call showops.php with nopage=1. FPP still
+// prints its own header bits on that path, so the JSON rides between markers
+// the page script looks for. JSON_HEX_* keeps markup characters out of it.
+const SHOWOPS_JSON_START = '@@SHOWOPS_JSON@@';
+const SHOWOPS_JSON_END = '@@SHOWOPS_JSON_END@@';
+
+function showops_json_envelope($data)
+{
+    $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES;
+    return SHOWOPS_JSON_START . json_encode($data, $flags) . SHOWOPS_JSON_END;
+}
+
+// What the page's status check is allowed to see: the step name only.
+function showops_public_step($step)
+{
+    $allowed = array('install', 'pair', 'claim', 'paired');
+    return in_array($step, $allowed, true) ? $step : 'pair';
+}

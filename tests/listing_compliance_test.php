@@ -37,6 +37,15 @@ expect('connect url rejects base with path', showops_connect_base_url(array('app
 expect('connect url rejects odd code', showops_connect_url(array(), 'FPP-AAAA"><script>'), '');
 expect('connect url empty code', showops_connect_url(array(), ''), '');
 
+$env = showops_json_envelope(array('step' => 'claim', 'connect_url' => 'https://showops.io/connect#code=FPP-AAAA-BBBB', 'error' => '</script><b>&"\''));
+expect('json envelope has markers', strpos($env, SHOWOPS_JSON_START) === 0 && substr($env, -strlen(SHOWOPS_JSON_END)) === SHOWOPS_JSON_END, true);
+expect('json envelope escapes markup', strpbrk($env, "<>&'") === false, true);
+$inner = json_decode(substr($env, strlen(SHOWOPS_JSON_START), -strlen(SHOWOPS_JSON_END)), true);
+expect('json envelope round trip', $inner['error'], '</script><b>&"\'');
+expect('json envelope keeps url', $inner['connect_url'], 'https://showops.io/connect#code=FPP-AAAA-BBBB');
+expect('public step passes known', showops_public_step('paired'), 'paired');
+expect('public step hides unknown', showops_public_step('<x>'), 'pair');
+
 $committed = trim(file_get_contents($root . '/AGENT_VERSION'));
 expect('committed version', showopsAgentResolveLatestVersion(), $committed);
 expect('older binary needs update', showopsAgentCompareVersions('v0.0.1', $committed) < 0, true);

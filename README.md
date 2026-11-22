@@ -12,7 +12,7 @@ ShowOps is not in FPP’s built-in catalog yet. Paste this **raw** URL into **Co
 https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/pluginInfo.json
 ```
 
-Then install **ShowOps Agent**, open **Content Setup → ShowOps**, click **Connect to ShowOps**, and click **Add player** on showops.io (or scan the QR code with the ShowOps app).
+Then install **ShowOps Agent**, open **Content Setup → ShowOps**, click **Sign in to ShowOps**, and sign in on the showops.io tab that opens. The player is added to your account automatically (or scan the QR code on a phone).
 
 On FPP 10, set UI Level to **Developer** so paste-install can load the card. On FPP 7–9, Advanced is usually enough.
 
@@ -20,7 +20,7 @@ Do **not** paste the GitHub repo homepage or a `.git` URL.
 
 ## Pair / unpair
 
-- Pair: **Generate Pairing Code** in the plugin UI, then claim in ShowOps.
+- Connect: **Sign in to ShowOps** in the plugin UI. Typing the code at showops.io/connect still works.
 - Unpair / reinstall: use the plugin UI or re-run `scripts/fpp_install.sh` (keeps existing config unless you remove it).
 
 ## Useful paths
@@ -43,7 +43,7 @@ tail -n 100 /home/fpp/media/logs/plugin-fpp-plugin-showops-agent.log
 bash /home/fpp/media/plugins/fpp-plugin-showops-agent/scripts/fpp_uninstall.sh
 ```
 
-Removes the agent binary, systemd unit, the agent's `media/tmp` files, and legacy `/opt` and `/var/lib` paths. The `0600` config in `plugindata/` stays, so pairing survives an FPP **Reinstall All** after an OS upgrade; **Unpair** in the plugin UI clears it. Nothing is copied into `media/config/`, and a `showops-agent-enrollment.json` left there by older versions is deleted.
+Removes the agent binary, systemd unit, the agent's `media/tmp` files, and legacy `/opt` and `/var/lib` paths. The `0600` config in `plugindata/` stays, so pairing survives an FPP **Reinstall All** after an OS upgrade; **Disconnect from ShowOps** in the plugin UI clears it. Nothing is copied into `media/config/`, and a `showops-agent-enrollment.json` left there by older versions is deleted.
 
 ## Engineers
 
