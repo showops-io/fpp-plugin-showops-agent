@@ -88,6 +88,23 @@ if (!function_exists('showopsAgentHttpGet')) {
     $failed++;
 }
 
+// Sign-in passed on by the player: only known fields, the player's own code.
+$fwd = showops_signin_forward_body(json_encode(array(
+    'pairing_code' => 'FPP-EVIL-CODE', 'email' => 'a@b.test', 'password' => 'pw',
+    'start_push' => 'yes', 'check_push' => true, 'extra' => 'x', 'org_id' => 7,
+)), 'FPP-AAAA-BBBB');
+expect('signin uses player code', $fwd['pairing_code'], 'FPP-AAAA-BBBB');
+expect('signin keeps password', $fwd['password'], 'pw');
+expect('signin drops unknown fields', isset($fwd['extra']) || isset($fwd['org_id']) || isset($fwd['start_push']), false);
+expect('signin keeps push poll flag', $fwd['check_push'], true);
+expect('signin needs a code', showops_signin_forward_body('{"email":"a"}', ''), null);
+expect('signin rejects non-json', showops_signin_forward_body('email=a', 'FPP-AAAA-BBBB'), null);
+expect('signin rejects huge body', showops_signin_forward_body(str_repeat('a', 9000), 'FPP-AAAA-BBBB'), null);
+$pub = showops_signin_public_reply(array('status' => 'claimed', 'device_id' => 'd1', 'token' => 'dtok_x', 'set_cookie' => 'y'), 200);
+expect('signin reply drops token', isset($pub['token']) || isset($pub['set_cookie']), false);
+expect('signin reply keeps status', $pub['status'], 'claimed');
+expect('signin reply bad body', showops_signin_public_reply(null, 502)['error'], 'bad_reply');
+
 if ($failed !== 0) {
     fwrite(STDERR, "$failed check(s) failed\n");
     exit(1);
