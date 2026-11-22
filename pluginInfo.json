@@ -9,15 +9,22 @@
   "iconURL": "https://raw.githubusercontent.com/showops-io/fpp-plugin-showops-agent/main/icon.png",
   "documentation": "https://showops.io/getting-started",
   "allowUpdates": 1,
+  "releaseNotesStyle": "gitHistory",
   "minMemoryMB": 512,
   "minCpuCores": 1,
   "privacy": {
-    "summary": "ShowOps watches this player and alerts you when the show does not start. Song, playlist, position, and volume go to your ShowOps account only while that player's page is open. Playback changes, and a private connection to this player's FPP pages, happen only when you ask. Diagnostics, location, backups, and the reboot banner stay off until you turn them on here.",
+    "summary": "Alerts you when a show does not start or FPP or power has trouble. Song and volume go only while its live page is open. Changes happen only when you ask. Diagnostics, location and backups start off.",
     "sends": [
       {
         "to": "api.showops.io",
         "what": "hostname, FPP, OS and agent version, board, playback, next show time, CPU, memory and disk use",
         "why": "to show this player's status in your ShowOps account",
+        "alwaysOn": true
+      },
+      {
+        "to": "api.showops.io",
+        "what": "alerts as they happen: a show that did not start, fppd stopping, under-voltage, FPP's warnings",
+        "why": "to alert you, even when nobody has ShowOps open",
         "alwaysOn": true
       },
       {
@@ -57,6 +64,12 @@
         "alwaysOn": false
       },
       {
+        "to": "api.showops.io",
+        "what": "FPP's web pages, and the page of a controller FPP lists, during a console you open",
+        "why": "so you, or a helper you let in, can use FPP and its controllers from ShowOps",
+        "alwaysOn": false
+      },
+      {
         "to": "Cloudflare Tunnel (argotunnel.com)",
         "what": "this player's FPP web pages during a remote support session",
         "why": "so the helper signed in to ShowOps can open FPP remotely",
@@ -65,7 +78,7 @@
     ],
     "collects": [
       {
-        "what": "pairing token for this player",
+        "what": "pairing token and the hardware identifier hash for this player",
         "about": "operator",
         "keptDays": null,
         "canDelete": true,
@@ -77,7 +90,7 @@
     "systemChanges": [
       {
         "kind": "service",
-        "what": "Installs and enables the fpp-monitor-agent systemd service, run as the fpp user"
+        "what": "Installs the fpp-monitor-agent systemd service, run as fpp. Without systemd (Docker), postStart.sh runs it as fpp under a supervisor script"
       },
       {
         "kind": "download",
@@ -94,6 +107,10 @@
       {
         "kind": "core-settings",
         "what": "On request sets FPP's restart and reboot banners, upgrades FPP or the OS, changes volume, skips playlist items, and edits playlists and schedules"
+      },
+      {
+        "kind": "core-settings",
+        "what": "If an FPP upgrade stops partway, runs FPP's own Rebuild to recover"
       },
       {
         "kind": "core-settings",
@@ -117,7 +134,7 @@
       }
     ],
     "closedCode": true,
-    "other": "Pair only on a trusted network. Pairing credentials stay in plugindata until Unpair. The agent does not replace its own binary; Update in Plugin Manager installs new agents. ShowOps can ask FPP to upgrade this plugin through FPP's own plugin upgrade. Remote support is signed in through ShowOps, opened from the cloud, and idle-limited. cloudflared stays on the pinned 2024.8.3 build. A remote session reaches only this player's FPP web UI. ShowOps can turn a listed capability off and cannot turn a switch on."
+    "other": "Pair only on a trusted network. Pairing credentials stay in plugindata until Unpair or uninstall (a Reinstall on FPP 10.4+ keeps them). The agent does not replace its own binary; Update in Plugin Manager installs new agents. ShowOps can ask FPP to upgrade this plugin through FPP's own plugin upgrade. Remote support is signed in through ShowOps, opened from the cloud, and idle-limited. cloudflared stays on the pinned 2024.8.3 build. A remote session reaches this player's FPP web UI and, only when you pick one, the web page of a controller FPP itself lists as an output or MultiSync system at a private address; nothing else on your network. ShowOps can turn a listed capability off and cannot turn a switch on. Song, playlist, position and volume go to ShowOps only while someone has this player's live page open; alerts go out whenever they happen. In Docker the agent's supervisor keeps running when fppd stops, so it can report that, and uninstall stops it."
   },
   "versions": [
     {
